@@ -1,0 +1,14 @@
+node_modules
+webview-ui/node_modules
+webview-ui/src
+webview-ui/dist
+webview-ui/node_modules
+.vscode-test
+*.vsix
+src
+esbuild.config.mjs
+tsconfig.json
+webview-ui/tsconfig.json
+webview-ui/vite.config.ts
+webview-ui/package.json
+webview-ui/index.html

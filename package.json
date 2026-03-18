@@ -1,0 +1,64 @@
+{
+  "name": "mcp-tool-explorer",
+  "displayName": "MCP Tool Explorer",
+  "description": "Inspect and test MCP servers directly inside VS Code and browse Tools, Resources, and Prompts, run tool calls, view history, and syntax-highlighted results.",
+  "version": "1.0.0",
+  "publisher": "jurgen178",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jurgen178/mcp-tool-explorer"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "mcp",
+    "model context protocol",
+    "ai",
+    "tools",
+    "inspector"
+  ],
+  "activationEvents": [
+    "onCommand:mcpExplorer.open",
+    "workspaceContains:.vscode/mcp.json"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "mcpExplorer.open",
+        "title": "Open MCP Tool Explorer",
+        "category": "MCP",
+        "icon": "$(plug)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "mcpExplorer.open"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "npm run build:webview && node esbuild.config.mjs",
+    "build:webview": "cd webview-ui && npm install && npm run build",
+    "build:extension": "node esbuild.config.mjs",
+    "watch:extension": "node esbuild.config.mjs --watch",
+    "compile-check": "tsc --noEmit",
+    "package": "npx @vscode/vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.27.4",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}
