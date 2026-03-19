@@ -11,6 +11,11 @@ interface ActiveConnection {
 
 export class McpClientManager {
   private readonly _connections = new Map<string, ActiveConnection>();
+  private readonly _version: string;
+
+  constructor(version: string) {
+    this._version = version;
+  }
 
   isConnected(serverId: string): boolean {
     return this._connections.has(serverId);
@@ -23,7 +28,7 @@ export class McpClientManager {
     }
 
     const client = new Client(
-      { name: 'mcp-tool-explorer', version: '1.0.0' },
+      { name: 'mcp-tool-explorer', version: this._version },
       { capabilities: { tools: {}, resources: {}, prompts: {} } },
     );
 

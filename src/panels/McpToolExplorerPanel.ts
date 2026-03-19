@@ -50,7 +50,9 @@ export class McpToolExplorerPanel {
   private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
     this._panel = panel;
     this._extensionUri = extensionUri;
-    this._clientManager = new McpClientManager();
+    const ext = vscode.extensions.getExtension('jurgen178.mcp-tool-explorer');
+    const version: string = (ext?.packageJSON as { version?: string })?.version ?? '1.0.0';
+    this._clientManager = new McpClientManager(version);
     this._configDiscovery = new McpConfigDiscovery();
 
     this._panel.webview.html = this._buildHtml();
