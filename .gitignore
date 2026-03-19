@@ -3,3 +3,4 @@ dist/
 .vscode-test/
 *.vsix
 webview-ui/node_modules/
+/.vs
