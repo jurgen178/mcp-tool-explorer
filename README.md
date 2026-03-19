@@ -82,11 +82,11 @@ Click **+ Add Server** in the sidebar and fill in the connection details. Manual
 
 ## Transports
 
-| Type&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Config&nbsp;key&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Description&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; |
-|---------|----------------------------------|-------------------------------------|
-| `stdio` | `command`, `args`, `env`, `cwd` | Spawns a local process              |
-| `http`  | `url`, `headers`                 | Streamable HTTP (MCP 2025-03 spec)  |
-| `sse`   | `url`, `headers`                 | Server-Sent Events (legacy)         |
+| Type | Config&nbsp;key | Description |
+|------|-----------|-------------|
+| `stdio` | `command`, `args`, `env`, `cwd` | Spawns a local process |
+| `http` | `url`, `headers` | Streamable HTTP (MCP 2025-03 spec) |
+| `sse` | `url`, `headers` | Server-Sent Events (legacy) |
 
 For `stdio` servers, the working directory defaults to the workspace root so relative paths in `command` resolve correctly.
 
