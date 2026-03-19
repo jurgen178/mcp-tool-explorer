@@ -5,8 +5,8 @@ import { McpClientManager } from '../mcp/McpClientManager';
 import { McpConfigDiscovery } from '../mcp/McpConfigDiscovery';
 import type { McpServerConfig, MessageToExtension, MessageToWebview } from '../types';
 
-export class McpExplorerPanel {
-  public static currentPanel: McpExplorerPanel | undefined;
+export class McpToolExplorerPanel {
+  public static currentPanel: McpToolExplorerPanel | undefined;
 
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionUri: vscode.Uri;
@@ -22,13 +22,13 @@ export class McpExplorerPanel {
   public static createOrShow(context: vscode.ExtensionContext): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
 
-    if (McpExplorerPanel.currentPanel) {
-      McpExplorerPanel.currentPanel._panel.reveal(column);
+    if (McpToolExplorerPanel.currentPanel) {
+      McpToolExplorerPanel.currentPanel._panel.reveal(column);
       return;
     }
 
     const panel = vscode.window.createWebviewPanel(
-      'mcpExplorer',
+      'mcpToolExplorer',
       'MCP Tool Explorer',
       column,
       {
@@ -38,11 +38,11 @@ export class McpExplorerPanel {
       },
     );
 
-    McpExplorerPanel.currentPanel = new McpExplorerPanel(panel, context.extensionUri);
+    McpToolExplorerPanel.currentPanel = new McpToolExplorerPanel(panel, context.extensionUri);
   }
 
   public static refresh(): void {
-    McpExplorerPanel.currentPanel?._sendServers();
+    McpToolExplorerPanel.currentPanel?._sendServers();
   }
 
   // ── Constructor ───────────────────────────────────────────────────────────
@@ -244,7 +244,7 @@ export class McpExplorerPanel {
   // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   public dispose(): void {
-    McpExplorerPanel.currentPanel = undefined;
+    McpToolExplorerPanel.currentPanel = undefined;
     this._clientManager.disposeAll();
     this._panel.dispose();
     while (this._disposables.length) {

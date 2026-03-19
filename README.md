@@ -122,7 +122,7 @@ src/
     McpClientManager.ts     # MCP client connections (all transports)
     McpConfigDiscovery.ts   # Server auto-discovery
   panels/
-    McpExplorerPanel.ts     # WebView panel & message bridge
+    McpToolExplorerPanel.ts     # WebView panel & message bridge
 webview-ui/
   src/
     App.tsx                 # Root component & state management

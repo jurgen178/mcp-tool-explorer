@@ -11,7 +11,7 @@ npm install -g @vscode/vsce
 ## 1. Build
 
 ```powershell
-cd c:\mcp\mcp-explorer
+cd c:\repos\mcp-tool-explorer
 npm run build
 ```
 

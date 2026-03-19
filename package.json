@@ -22,14 +22,14 @@
     "inspector"
   ],
   "activationEvents": [
-    "onCommand:mcpExplorer.open",
+    "onCommand:mcpToolExplorer.open",
     "workspaceContains:.vscode/mcp.json"
   ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "mcpExplorer.open",
+        "command": "mcpToolExplorer.open",
         "title": "Open MCP Tool Explorer",
         "category": "MCP",
         "icon": "$(plug)"
@@ -38,7 +38,7 @@
     "menus": {
       "commandPalette": [
         {
-          "command": "mcpExplorer.open"
+          "command": "mcpToolExplorer.open"
         }
       ]
     }
