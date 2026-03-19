@@ -9,6 +9,7 @@ interface Props {
   history: HistoryEntry[];
   requests: Record<string, RequestEntry>;
   isConnected: boolean;
+  isConnecting: boolean;
   pendingRerun: { toolName: string; args: unknown } | null;
   onPendingRerunConsumed: () => void;
   onStartRequest: (id: string, info: RequestInfo) => void;
@@ -49,7 +50,7 @@ function validateJsonArgs(json: string, schema: InputSchema): { errors: string[]
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ToolsPanel({
-  serverId, tools, history, requests, isConnected,
+  serverId, tools, history, requests, isConnected, isConnecting,
   pendingRerun, onPendingRerunConsumed, onStartRequest,
 }: Props) {
   const [selectedTool, setSelectedTool] = useState<McpTool | null>(null);
@@ -113,7 +114,7 @@ export default function ToolsPanel({
       <div className="panel-list scroll-list">
         {tools.length === 0 ? (
           <div className="empty-state" style={{ height: 'auto', padding: '16px 12px' }}>
-            <p>{isConnected ? 'No tools available.' : 'Connect to load tools.'}</p>
+            <p>{isConnecting ? 'Loading tools…' : isConnected ? 'No tools available.' : 'Connect to load tools.'}</p>
           </div>
         ) : tools.map(tool => (
           <div

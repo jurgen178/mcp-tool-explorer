@@ -224,7 +224,7 @@ export default function App() {
         case 'serverRemoved':   dispatch({ type: 'SERVER_REMOVED',    serverId: msg.serverId }); break;
         case 'connected':       dispatch({ type: 'CONNECTED',         serverId: msg.serverId }); break;
         case 'disconnected':    dispatch({ type: 'DISCONNECTED',      serverId: msg.serverId }); break;
-        case 'connectionError': dispatch({ type: 'CONNECTION_ERROR',  serverId: msg.serverId, error: msg.error }); break;
+        case 'connectionError': dispatch({ type: 'CONNECTION_ERROR',  serverId: msg.serverId, error: msg.error }); dispatch({ type: 'SELECT_TAB', tab: 'log' }); break;
         case 'toolsListed':     dispatch({ type: 'TOOLS_LISTED',      serverId: msg.serverId, tools: msg.tools }); break;
         case 'resourcesListed': dispatch({ type: 'RESOURCES_LISTED',  serverId: msg.serverId, resources: msg.resources }); break;
         case 'promptsListed':   dispatch({ type: 'PROMPTS_LISTED',    serverId: msg.serverId, prompts: msg.prompts }); break;
@@ -257,7 +257,6 @@ export default function App() {
   const handleConnect = (serverId: string) => {
     dispatch({ type: 'CONNECTION_LOG_CLEAR', serverId });
     dispatch({ type: 'CONNECTING', serverId });
-    dispatch({ type: 'SELECT_TAB', tab: 'log' });
     postMessage({ type: 'connect', serverId });
   };
 
@@ -394,6 +393,7 @@ export default function App() {
                 history={state.history.filter(e => e.serverId === selectedServer.id && e.type === 'tool')}
                 requests={state.requests}
                 isConnected={isConnected}
+                isConnecting={selectedStatus === 'connecting'}
                 pendingRerun={pendingRerun}
                 onPendingRerunConsumed={() => setPendingRerun(null)}
                 onStartRequest={handleStartRequest}

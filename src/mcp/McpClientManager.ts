@@ -127,6 +127,7 @@ export class McpClientManager {
           this._connections.set(config.id, { client: sseClient, config });
           return;
         } catch (e2: unknown) {
+          try { await sseClient.close(); } catch { /* ensure EventSource is stopped */ }
           const sseMsg = e2 instanceof Error ? e2.message : String(e2);
           this._log('error', 'SSE transport also failed', sseMsg);
           // SSE also failed — fall through to throw the original error
@@ -228,6 +229,7 @@ export class McpClientManager {
     return new StreamableHTTPClientTransport(url, {
       ...(requestInit ? { requestInit } : {}),
       fetch: authenticatedFetch,
+      reconnectionOptions: { maxRetries: 2, initialReconnectionDelay: 1000, maxReconnectionDelay: 5000, reconnectionDelayGrowFactor: 1.5 },
     });
   }
 }
