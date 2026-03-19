@@ -46,6 +46,25 @@ export class McpClientManager {
     try {
       await client.connect(transport);
     } catch (e: unknown) {
+      // Per the MCP spec, clients SHOULD try Streamable HTTP first and
+      // fall back to SSE when the server doesn't support it.
+      if (config.type === 'http' && config.url) {
+        try { await client.close(); } catch { /* ignore cleanup errors */ }
+
+        const sseClient = new Client(
+          { name: 'mcp-tool-explorer', version: this._version },
+          { capabilities: { tools: {}, resources: {}, prompts: {} } },
+        );
+        const sseTransport = this._createTransport({ ...config, type: 'sse' });
+        try {
+          await sseClient.connect(sseTransport);
+          this._connections.set(config.id, { client: sseClient, config });
+          return;
+        } catch {
+          // SSE also failed — fall through to throw the original error
+        }
+      }
+
       const base = e instanceof Error ? e.message : String(e);
       const detail = stderrOutput.trim();
       throw new Error(detail ? `${base}\n\nServer stderr:\n${detail}` : base);
