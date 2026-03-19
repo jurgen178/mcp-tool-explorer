@@ -1,8 +1,8 @@
 # MCP Tool Explorer
 
-A VS Code extension for inspecting and testing [Model Context Protocol (MCP)](https://modelcontextprotocol.io) servers — directly inside your editor.
+A VS Code extension for inspecting and testing [Model Context Protocol (MCP)](https://modelcontextprotocol.io) servers, directly inside your editor.
 
-Connect to any MCP server, browse its capabilities, call tools with live input forms, read resources, and render prompts — all without leaving your editor.
+Connect to any MCP server, browse its capabilities, call tools with live input forms, read resources, and render prompts. All without leaving your editor.
 
 ![MCP Tool Explorer screenshot](mcp-tool-explorer.png)
 
@@ -82,11 +82,11 @@ Click **+ Add Server** in the sidebar and fill in the connection details. Manual
 
 ## Transports
 
-| Type | Config key | Description |
-|------|-----------|-------------|
-| `stdio` | `command`, `args`, `env`, `cwd` | Spawns a local process |
-| `http` | `url`, `headers` | Streamable HTTP (MCP 2025-03 spec) |
-| `sse` | `url`, `headers` | Server-Sent Events (legacy) |
+| Type&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Config&nbsp;key&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; | Description&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; |
+|---------|----------------------------------|-------------------------------------|
+| `stdio` | `command`, `args`, `env`, `cwd` | Spawns a local process              |
+| `http`  | `url`, `headers`                 | Streamable HTTP (MCP 2025-03 spec)  |
+| `sse`   | `url`, `headers`                 | Server-Sent Events (legacy)         |
 
 For `stdio` servers, the working directory defaults to the workspace root so relative paths in `command` resolve correctly.
 
