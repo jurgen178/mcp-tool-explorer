@@ -1,4 +1,5 @@
-import { useMemo, useState, useCallback } from 'react';
+import { useMemo } from 'react';
+import CopyButton from './CopyButton';
 
 type TokenKind = 'key' | 'string' | 'number' | 'boolean' | 'null' | 'punc' | 'ws';
 interface Token { kind: TokenKind; value: string; }
@@ -66,24 +67,9 @@ export default function JsonViewer({ data, isError }: Props) {
     try { return tokenize(raw); } catch { return null; }
   }, [raw]);
 
-  const [copied, setCopied] = useState(false);
-  const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(raw).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    });
-  }, [raw]);
-
   return (
     <div className="json-viewer-wrap">
-      <button
-        className="json-copy-btn"
-        onClick={handleCopy}
-        title="Copy to clipboard"
-        aria-label="Copy to clipboard"
-      >
-        {copied ? '✓' : '⧉'}
-      </button>
+      <CopyButton text={raw} />
       <pre className={`json-box${isError ? ' is-error' : ''}`}>
         {tokens
           ? tokens.map((t, i) =>

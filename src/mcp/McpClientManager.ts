@@ -3,6 +3,14 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { McpServerConfig, McpTool, McpResource, McpPrompt } from '../types';
+import { createLoggingFetch, type FetchLogEntry } from './LoggingFetch';
+
+export interface ConnectionLogEntry {
+  timestamp: number;
+  level: 'info' | 'warn' | 'error';
+  message: string;
+  detail?: string;
+}
 
 interface ActiveConnection {
   client: Client;
@@ -12,9 +20,46 @@ interface ActiveConnection {
 export class McpClientManager {
   private readonly _connections = new Map<string, ActiveConnection>();
   private readonly _version: string;
+  /** Callback to emit log entries to the panel during connect. */
+  private _onLog: ((entry: ConnectionLogEntry) => void) | undefined;
 
   constructor(version: string) {
     this._version = version;
+  }
+
+  /** Set a listener for connection log entries (called before connect). */
+  setLogListener(listener: (entry: ConnectionLogEntry) => void): void {
+    this._onLog = listener;
+  }
+
+  private _log(level: ConnectionLogEntry['level'], message: string, detail?: string): void {
+    this._onLog?.({ timestamp: Date.now(), level, message, detail });
+  }
+
+  private _logFetchEntry(entry: FetchLogEntry): void {
+    const statusStr = entry.status !== null ? `${entry.status} ${entry.statusText}` : 'NETWORK ERROR';
+    const level: ConnectionLogEntry['level'] = entry.error ? 'error' : (entry.status && entry.status >= 400) ? 'warn' : 'info';
+
+    const lines = [
+      `${entry.method} ${entry.url}  →  ${statusStr}  (${entry.durationMs}ms)`,
+    ];
+    if (Object.keys(entry.requestHeaders).length > 0) {
+      lines.push('Request headers:');
+      for (const [k, v] of Object.entries(entry.requestHeaders)) lines.push(`  ${k}: ${v}`);
+    }
+    if (entry.status !== null) {
+      lines.push('Response headers:');
+      for (const [k, v] of Object.entries(entry.responseHeaders)) lines.push(`  ${k}: ${v}`);
+    }
+    if (entry.bodyExcerpt) {
+      lines.push('Response body (excerpt):');
+      lines.push(`  ${entry.bodyExcerpt}`);
+    }
+    if (entry.error) {
+      lines.push(`Error: ${entry.error}`);
+    }
+
+    this._log(level, `HTTP ${entry.method} ${new URL(entry.url).pathname}  →  ${statusStr}`, lines.join('\n'));
   }
 
   isConnected(serverId: string): boolean {
@@ -26,6 +71,13 @@ export class McpClientManager {
     if (this._connections.has(config.id)) {
       await this.disconnect(config.id);
     }
+
+    this._log('info', `Connecting to "${config.name}"…`, [
+      `Type: ${config.type}`,
+      config.url ? `URL: ${config.url}` : `Command: ${config.command} ${(config.args ?? []).join(' ')}`,
+      config.headers ? `Headers: ${JSON.stringify(config.headers)}` : '',
+      config.cwd ? `CWD: ${config.cwd}` : '',
+    ].filter(Boolean).join('\n'));
 
     const client = new Client(
       { name: 'mcp-tool-explorer', version: this._version },
@@ -39,18 +91,26 @@ export class McpClientManager {
     if (config.type === 'stdio') {
       const stdioTransport = transport as StdioClientTransport;
       stdioTransport.stderr?.on('data', (chunk: Buffer) => {
-        stderrOutput += chunk.toString();
+        const line = chunk.toString();
+        stderrOutput += line;
+        this._log('warn', 'Server stderr', line.trim());
       });
     }
 
     try {
+      this._log('info', `Attempting ${config.type.toUpperCase()} transport…`);
       await client.connect(transport);
+      this._log('info', `Connected successfully via ${config.type.toUpperCase()}.`);
     } catch (e: unknown) {
-      // Per the MCP spec, clients SHOULD try Streamable HTTP first and
-      // fall back to SSE when the server doesn't support it.
+      const baseMsg = e instanceof Error ? e.message : String(e);
+      const stack = e instanceof Error ? e.stack : undefined;
+      this._log('error', `${config.type.toUpperCase()} transport failed`, [baseMsg, stack ? `Stack: ${stack}` : ''].filter(Boolean).join('\n'));
+
+      // Fall back from Streamable HTTP to SSE (per MCP spec recommendation)
       if (config.type === 'http' && config.url) {
         try { await client.close(); } catch { /* ignore cleanup errors */ }
 
+        this._log('info', 'Falling back to SSE transport…');
         const sseClient = new Client(
           { name: 'mcp-tool-explorer', version: this._version },
           { capabilities: { tools: {}, resources: {}, prompts: {} } },
@@ -58,16 +118,20 @@ export class McpClientManager {
         const sseTransport = this._createTransport({ ...config, type: 'sse' });
         try {
           await sseClient.connect(sseTransport);
+          this._log('info', 'Connected successfully via SSE.');
           this._connections.set(config.id, { client: sseClient, config });
           return;
-        } catch {
+        } catch (e2: unknown) {
+          const sseMsg = e2 instanceof Error ? e2.message : String(e2);
+          this._log('error', 'SSE transport also failed', sseMsg);
           // SSE also failed — fall through to throw the original error
         }
       }
 
-      const base = e instanceof Error ? e.message : String(e);
       const detail = stderrOutput.trim();
-      throw new Error(detail ? `${base}\n\nServer stderr:\n${detail}` : base);
+      const fullError = detail ? `${baseMsg}\n\nServer stderr:\n${detail}` : baseMsg;
+      this._log('error', 'Connection failed', fullError);
+      throw new Error(fullError);
     }
 
     this._connections.set(config.id, { client, config });
@@ -144,11 +208,20 @@ export class McpClientManager {
       ? { headers: config.headers }
       : undefined;
 
+    // Wrap fetch to log every HTTP request/response for diagnostics
+    const loggingFetch = createLoggingFetch((entry) => this._logFetchEntry(entry));
+
     if (config.type === 'sse') {
-      return new SSEClientTransport(url, requestInit ? { requestInit } : undefined);
+      return new SSEClientTransport(url, {
+        ...(requestInit ? { requestInit } : {}),
+        fetch: loggingFetch,
+      });
     }
 
     // http (streamable)
-    return new StreamableHTTPClientTransport(url, requestInit ? { requestInit } : undefined);
+    return new StreamableHTTPClientTransport(url, {
+      ...(requestInit ? { requestInit } : {}),
+      fetch: loggingFetch,
+    });
   }
 }

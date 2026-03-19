@@ -2,7 +2,7 @@
   "name": "mcp-tool-explorer",
   "displayName": "MCP Tool Explorer",
   "description": "Inspect and test MCP servers directly inside VS Code and browse Tools, Resources, and Prompts, run tool calls, view history, and syntax-highlighted results.",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "publisher": "jurgen178",
   "repository": {
     "type": "git",

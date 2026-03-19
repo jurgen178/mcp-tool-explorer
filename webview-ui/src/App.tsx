@@ -9,9 +9,17 @@ import ToolsPanel from './components/ToolsPanel';
 import ResourcesPanel from './components/ResourcesPanel';
 import PromptsPanel from './components/PromptsPanel';
 import HistoryPanel from './components/HistoryPanel';
+import ConnectionLogPanel from './components/ConnectionLogPanel';
 import AddServerModal from './components/AddServerModal';
 
 // ── State & Reducer ──────────────────────────────────────────────────────────
+
+export interface ConnectionLogEntry {
+  timestamp: number;
+  level: 'info' | 'warn' | 'error';
+  message: string;
+  detail?: string;
+}
 
 interface AppState {
   servers: McpServerConfig[];
@@ -19,12 +27,13 @@ interface AppState {
   serverStatus: Record<string, ConnectionStatus>;
   serverErrors: Record<string, string>;
   selectedServerId: string | null;
-  activeTab: 'tools' | 'resources' | 'prompts' | 'history';
+  activeTab: 'tools' | 'resources' | 'prompts' | 'history' | 'log';
   tools: Record<string, McpTool[]>;
   resources: Record<string, McpResource[]>;
   prompts: Record<string, McpPrompt[]>;
   requests: Record<string, RequestEntry>;
   history: HistoryEntry[];
+  connectionLogs: Record<string, ConnectionLogEntry[]>;
   showAddServer: boolean;
 }
 
@@ -42,9 +51,11 @@ type Action =
   | { type: 'REQUEST_DONE'; requestId: string; data: unknown; isError: boolean }
   | { type: 'REQUEST_STARTED'; requestId: string }
   | { type: 'SELECT_SERVER'; serverId: string }
-  | { type: 'SELECT_TAB'; tab: 'tools' | 'resources' | 'prompts' | 'history' }
+  | { type: 'SELECT_TAB'; tab: 'tools' | 'resources' | 'prompts' | 'history' | 'log' }
   | { type: 'SHOW_ADD_SERVER'; show: boolean }
   | { type: 'EXT_ERROR'; message: string; requestId?: string }
+  | { type: 'CONNECTION_LOG'; serverId: string; log: ConnectionLogEntry }
+  | { type: 'CONNECTION_LOG_CLEAR'; serverId: string }
   | { type: 'HISTORY_ADD'; entry: HistoryEntry }
   | { type: 'HISTORY_UPDATE'; id: string; status: 'done' | 'error'; result?: unknown; isError?: boolean }
   | { type: 'HISTORY_CLEAR'; serverId: string };
@@ -61,6 +72,7 @@ const initialState: AppState = {
   prompts: {},
   requests: {},
   history: [],
+  connectionLogs: {},
   showAddServer: false,
 };
 
@@ -165,6 +177,23 @@ function reducer(state: AppState, action: Action): AppState {
     case 'HISTORY_CLEAR':
       return { ...state, history: state.history.filter(e => e.serverId !== action.serverId) };
 
+    case 'CONNECTION_LOG': {
+      const existing = state.connectionLogs[action.serverId] ?? [];
+      return {
+        ...state,
+        connectionLogs: {
+          ...state.connectionLogs,
+          [action.serverId]: [...existing, action.log].slice(-500),
+        },
+      };
+    }
+
+    case 'CONNECTION_LOG_CLEAR':
+      return {
+        ...state,
+        connectionLogs: { ...state.connectionLogs, [action.serverId]: [] },
+      };
+
     case 'SELECT_SERVER':
       return { ...state, selectedServerId: action.serverId };
 
@@ -199,6 +228,7 @@ export default function App() {
         case 'toolsListed':     dispatch({ type: 'TOOLS_LISTED',      serverId: msg.serverId, tools: msg.tools }); break;
         case 'resourcesListed': dispatch({ type: 'RESOURCES_LISTED',  serverId: msg.serverId, resources: msg.resources }); break;
         case 'promptsListed':   dispatch({ type: 'PROMPTS_LISTED',    serverId: msg.serverId, prompts: msg.prompts }); break;
+        case 'connectionLog':   dispatch({ type: 'CONNECTION_LOG',    serverId: msg.serverId, log: msg.log }); break;
         case 'toolResult':
         case 'resourceContent':
         case 'promptContent': {
@@ -225,7 +255,9 @@ export default function App() {
   // ── Actions ─────────────────────────────────────────────────────────────
 
   const handleConnect = (serverId: string) => {
+    dispatch({ type: 'CONNECTION_LOG_CLEAR', serverId });
     dispatch({ type: 'CONNECTING', serverId });
+    dispatch({ type: 'SELECT_TAB', tab: 'log' });
     postMessage({ type: 'connect', serverId });
   };
 
@@ -341,6 +373,17 @@ export default function App() {
                   </div>
                 );
               })()}
+              {(() => {
+                const logCount = (state.connectionLogs[selectedServer.id] ?? []).length;
+                return (
+                  <div
+                    className={`tab${state.activeTab === 'log' ? ' active' : ''}`}
+                    onClick={() => dispatch({ type: 'SELECT_TAB', tab: 'log' })}
+                  >
+                    Log{logCount > 0 ? ` (${logCount})` : ''}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Tab content */}
@@ -379,6 +422,12 @@ export default function App() {
                 history={state.history.filter(e => e.serverId === selectedServer.id)}
                 onClear={() => dispatch({ type: 'HISTORY_CLEAR', serverId: selectedServer.id })}
                 onRerun={(toolName, args) => handleRerun(toolName, args)}
+              />
+            )}
+            {state.activeTab === 'log' && (
+              <ConnectionLogPanel
+                logs={state.connectionLogs[selectedServer.id] ?? []}
+                onClear={() => dispatch({ type: 'CONNECTION_LOG_CLEAR', serverId: selectedServer.id })}
               />
             )}
           </>

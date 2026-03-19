@@ -109,4 +109,5 @@ export type MessageToWebview =
   | { type: 'resourceContent'; requestId: string; content: unknown }
   | { type: 'promptsListed'; serverId: string; prompts: McpPrompt[] }
   | { type: 'promptContent'; requestId: string; content: unknown }
+  | { type: 'connectionLog'; serverId: string; log: { timestamp: number; level: 'info' | 'warn' | 'error'; message: string; detail?: string } }
   | { type: 'error'; message: string; requestId?: string };

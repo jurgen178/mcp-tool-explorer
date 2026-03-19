@@ -94,6 +94,10 @@ export class McpToolExplorerPanel {
           this._post({ type: 'connectionError', serverId: message.serverId, error: 'Server config not found' });
           return;
         }
+        // Wire up log listener so every log entry streams to the webview
+        this._clientManager.setLogListener((log) => {
+          this._post({ type: 'connectionLog', serverId: message.serverId, log });
+        });
         try {
           await this._clientManager.connect(config);
           this._post({ type: 'connected', serverId: message.serverId });
