@@ -3,6 +3,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { McpServerConfig, McpTool, McpResource, McpPrompt } from '../types';
+import { createOAuthHandler } from './McpOAuth';
 import { createLoggingFetch, type FetchLogEntry } from './LoggingFetch';
 
 export interface ConnectionLogEntry {
@@ -43,6 +44,9 @@ export class McpClientManager {
     const lines = [
       `${entry.method} ${entry.url}  →  ${statusStr}  (${entry.durationMs}ms)`,
     ];
+    if (entry.rpcMethod) {
+      lines.push(`JSON-RPC method: ${entry.rpcMethod}`);
+    }
     if (Object.keys(entry.requestHeaders).length > 0) {
       lines.push('Request headers:');
       for (const [k, v] of Object.entries(entry.requestHeaders)) lines.push(`  ${k}: ${v}`);
@@ -59,7 +63,8 @@ export class McpClientManager {
       lines.push(`Error: ${entry.error}`);
     }
 
-    this._log(level, `HTTP ${entry.method} ${new URL(entry.url).pathname}  →  ${statusStr}`, lines.join('\n'));
+    const rpcLabel = entry.rpcMethod ? ` (${entry.rpcMethod})` : '';
+    this._log(level, `HTTP ${entry.method} ${new URL(entry.url).pathname}${rpcLabel}  →  ${statusStr}`, lines.join('\n'));
   }
 
   isConnected(serverId: string): boolean {
@@ -208,20 +213,21 @@ export class McpClientManager {
       ? { headers: config.headers }
       : undefined;
 
-    // Wrap fetch to log every HTTP request/response for diagnostics
+    // Wrap fetch: logging records every request, OAuth handles 401 token acquisition
     const loggingFetch = createLoggingFetch((entry) => this._logFetchEntry(entry));
+    const authenticatedFetch = createOAuthHandler(loggingFetch);
 
     if (config.type === 'sse') {
       return new SSEClientTransport(url, {
         ...(requestInit ? { requestInit } : {}),
-        fetch: loggingFetch,
+        fetch: authenticatedFetch,
       });
     }
 
     // http (streamable)
     return new StreamableHTTPClientTransport(url, {
       ...(requestInit ? { requestInit } : {}),
-      fetch: loggingFetch,
+      fetch: authenticatedFetch,
     });
   }
 }
