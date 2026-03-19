@@ -116,6 +116,7 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
+                    fontSize: 11,
                   }}>
                     {entry.message}
                   </span>
