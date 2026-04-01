@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { postMessage } from '../vscode';
 import type { McpTool, SchemaProperty, InputSchema, RequestEntry, RequestInfo, HistoryEntry } from '../types';
 import JsonViewer from './JsonViewer';
-import { interpretResult } from '../resultInterpreters';
+import { interpretResult, type ResultInterpretation, type ImageItem } from '../resultInterpreters';
 
 interface Props {
   serverId: string;
@@ -18,6 +18,35 @@ interface Props {
 
 let reqCounter = 0;
 function nextReqId() { return `tool-${Date.now()}-${++reqCounter}`; }
+
+// ── Result tab renderer ───────────────────────────────────────────────────────
+
+function renderInterpretation(interp: ResultInterpretation) {
+  if (interp.id === 'text') {
+    return (
+      <div className="text-result-list">
+        {(interp.data as string[]).map((txt, idx) => (
+          <pre key={idx} className="text-result">{txt}</pre>
+        ))}
+      </div>
+    );
+  }
+  if (interp.id === 'image') {
+    return (
+      <div className="image-result-list">
+        {(interp.data as ImageItem[]).map((img, idx) => (
+          <img
+            key={idx}
+            src={`data:${img.mimeType};base64,${img.data}`}
+            alt={`Result image ${idx + 1}`}
+            className="image-result"
+          />
+        ))}
+      </div>
+    );
+  }
+  return <JsonViewer data={interp.data} />;
+}
 
 // ── JSON validation ───────────────────────────────────────────────────────────
 
@@ -212,10 +241,12 @@ export default function ToolsPanel({
                     </div>
                   )}
                 </div>
-                {activeResultTab === 'raw' || interpretations.length === 0
-                  ? <JsonViewer data={result.data} isError={result.isError} />
-                  : <JsonViewer data={interpretations.find(i => i.id === activeResultTab)!.data} />
-                }
+                {(() => {
+                  const interp = interpretations.find(i => i.id === activeResultTab);
+                  return activeResultTab === 'raw' || !interp
+                    ? <JsonViewer data={result.data} isError={result.isError} />
+                    : renderInterpretation(interp);
+                })()}
               </div>
             )}
 

@@ -18,11 +18,43 @@ type Interpreter = (raw: unknown) => ResultInterpretation | null;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function isMcpContentArray(raw: unknown): raw is Array<{ type: string; text?: string }> {
+function isMcpContentArray(raw: unknown): raw is Array<{ type: string; text?: string; data?: string; mimeType?: string }> {
   return (
     Array.isArray(raw) &&
     raw.every(item => typeof item === 'object' && item !== null && 'type' in item)
   );
+}
+
+// ── Text interpreter ─────────────────────────────────────────────────────────
+// Collects all text content items into a single "Text" tab.
+
+function isJsonObjectOrArray(text: string): boolean {
+  const t = text.trim();
+  if (!t.startsWith('{') && !t.startsWith('[')) return false;
+  try { const p = JSON.parse(t); return typeof p === 'object' && p !== null; } catch { return false; }
+}
+
+function tryTextInterpreter(raw: unknown): ResultInterpretation | null {
+  if (!isMcpContentArray(raw)) return null;
+  const texts = raw
+    .filter(item => item.type === 'text' && typeof item.text === 'string' && !isJsonObjectOrArray(item.text as string))
+    .map(item => item.text as string);
+  if (texts.length === 0) return null;
+  return { id: 'text', label: 'Text', data: texts };
+}
+
+// ── Image interpreter ─────────────────────────────────────────────────────────
+// Collects all image content items into a single "Image" tab.
+
+export interface ImageItem { data: string; mimeType: string; }
+
+function tryImageInterpreter(raw: unknown): ResultInterpretation | null {
+  if (!isMcpContentArray(raw)) return null;
+  const images: ImageItem[] = raw
+    .filter(item => item.type === 'image' && typeof item.data === 'string' && typeof item.mimeType === 'string')
+    .map(item => ({ data: item.data as string, mimeType: item.mimeType as string }));
+  if (images.length === 0) return null;
+  return { id: 'image', label: 'Image', data: images };
 }
 
 // ── JSON interpreter ──────────────────────────────────────────────────────────
@@ -51,6 +83,8 @@ function tryJsonInterpreter(raw: unknown): ResultInterpretation | null {
 
 const INTERPRETERS: Interpreter[] = [
   tryJsonInterpreter,
+  tryTextInterpreter,
+  tryImageInterpreter,
 ];
 
 /**

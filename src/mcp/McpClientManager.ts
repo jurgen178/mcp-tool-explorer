@@ -226,10 +226,12 @@ export class McpClientManager {
     }
 
     // http (streamable)
+    // Note: reconnectionOptions are intentionally omitted. Background auto-reconnect
+    // attempts from the transport can fire after client.close() and become unhandled
+    // promise rejections that crash the extension host. The user reconnects manually.
     return new StreamableHTTPClientTransport(url, {
       ...(requestInit ? { requestInit } : {}),
       fetch: authenticatedFetch,
-      reconnectionOptions: { maxRetries: 2, initialReconnectionDelay: 1000, maxReconnectionDelay: 5000, reconnectionDelayGrowFactor: 1.5 },
     });
   }
 }
