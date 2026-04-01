@@ -5,17 +5,29 @@ A VS Code extension for inspecting and testing [Model Context Protocol (MCP)](ht
 Connect to any MCP server, browse its capabilities, call tools with live input forms, read resources, and render prompts. All without leaving your editor.
 
 <br />
-![MCP Tool Explorer screenshot](https://raw.githubusercontent.com/jurgen178/mcp-tool-explorer/main/doc/mcp-tool-explorer.png)
+
+![MCP Tool Explorer screenshot](https://github.com/jurgen178/mcp-tool-explorer/blob/main/doc/mcp-tool-explorer.png?raw=true)
+
 <br />
-![MCP Tool Explorer screenshot](https://raw.githubusercontent.com/jurgen178/mcp-tool-explorer/main/doc/type1.png)
+
+![MCP Tool Explorer screenshot](https://github.com/jurgen178/mcp-tool-explorer/blob/main/doc/type1.png?raw=true)
+
 <br />
-![MCP Tool Explorer screenshot](https://raw.githubusercontent.com/jurgen178/mcp-tool-explorer/main/doc/type2.png)
+
+![MCP Tool Explorer screenshot](https://github.com/jurgen178/mcp-tool-explorer/blob/main/doc/type2.png?raw=true)
+
 <br />
-![MCP Tool Explorer screenshot](https://raw.githubusercontent.com/jurgen178/mcp-tool-explorer/main/doc/type3.png)
+
+![MCP Tool Explorer screenshot](https://github.com/jurgen178/mcp-tool-explorer/blob/main/doc/type3.png?raw=true)
+
 <br />
-![MCP Tool Explorer screenshot](https://raw.githubusercontent.com/jurgen178/mcp-tool-explorer/main/doc/type4.png)
+
+![MCP Tool Explorer screenshot](https://github.com/jurgen178/mcp-tool-explorer/blob/main/doc/type4.png?raw=true)
+
 <br />
-![MCP Tool Explorer screenshot](https://raw.githubusercontent.com/jurgen178/mcp-tool-explorer/main/doc/type5.png)
+
+![MCP Tool Explorer screenshot](https://github.com/jurgen178/mcp-tool-explorer/blob/main/doc/type5.png?raw=true)
+
 <br />
 
 ---
