@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { postMessage } from '../vscode';
 import type { McpTool, SchemaProperty, InputSchema, RequestEntry, RequestInfo, HistoryEntry } from '../types';
 import JsonViewer from './JsonViewer';
+import { interpretResult } from '../resultInterpreters';
 
 interface Props {
   serverId: string;
@@ -59,6 +60,7 @@ export default function ToolsPanel({
   const [useJson, setUseJson] = useState(false);
   const [lastReqId, setLastReqId] = useState<string | null>(null);
   const [expandedPrev, setExpandedPrev] = useState<string | null>(null);
+  const [activeResultTab, setActiveResultTab] = useState<string>('raw');
 
   // Handle re-run signal from History tab
   useEffect(() => {
@@ -101,6 +103,20 @@ export default function ToolsPanel({
   };
 
   const result = lastReqId ? requests[lastReqId] : undefined;
+
+  const interpretations = useMemo(
+    () => (result && result.status !== 'pending' ? interpretResult(result.data) : []),
+    [result]
+  );
+
+  // Reset the active tab whenever a new result arrives.
+  useEffect(() => {
+    if (result?.status === 'done' || result?.status === 'error') {
+      const interps = interpretResult(result.data);
+      setActiveResultTab(interps.length > 0 ? interps[0].id : 'raw');
+    }
+  }, [lastReqId, result?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const prevCalls = selectedTool
     ? history.filter(e => e.name === selectedTool.name && e.status !== 'pending').slice(0, 6)
     : [];
@@ -180,8 +196,26 @@ export default function ToolsPanel({
                   <span className={`result-label${result.isError ? ' error' : ' ok'}`}>
                     {result.isError ? '✗ Error' : '✓ Result'}
                   </span>
+                  {interpretations.length > 0 && (
+                    <div className="result-tabs">
+                      <button
+                        className={`result-tab${activeResultTab === 'raw' ? ' active' : ''}`}
+                        onClick={() => setActiveResultTab('raw')}
+                      >Raw</button>
+                      {interpretations.map(interp => (
+                        <button
+                          key={interp.id}
+                          className={`result-tab${activeResultTab === interp.id ? ' active' : ''}`}
+                          onClick={() => setActiveResultTab(interp.id)}
+                        >{interp.label}</button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <JsonViewer data={result.data} isError={result.isError} />
+                {activeResultTab === 'raw' || interpretations.length === 0
+                  ? <JsonViewer data={result.data} isError={result.isError} />
+                  : <JsonViewer data={interpretations.find(i => i.id === activeResultTab)!.data} />
+                }
               </div>
             )}
 
