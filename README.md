@@ -6,7 +6,7 @@ Connect to any MCP server, browse its capabilities, call tools with live input f
 
 <br />
 
-![MCP Tool Explorer screenshot](https://github.com/jurgen178/mcp-tool-explorer/blob/main/doc/mcp-tool-explorer.png?raw=true)
+![MCP Tool Explorer screenshot](https://github.com/jurgen178/mcp-tool-explorer/blob/main/mcp-tool-explorer.png?raw=true)
 
 <br />
 
