@@ -5,17 +5,17 @@ A VS Code extension for inspecting and testing [Model Context Protocol (MCP)](ht
 Connect to any MCP server, browse its capabilities, call tools with live input forms, read resources, and render prompts. All without leaving your editor.
 
 <br />
-![MCP Tool Explorer screenshot](doc/mcp-tool-explorer.png)
+![MCP Tool Explorer screenshot](https://raw.githubusercontent.com/jurgen178/mcp-tool-explorer/main/doc/mcp-tool-explorer.png)
 <br />
-![MCP Tool Explorer screenshot](doc/type1.png)
+![MCP Tool Explorer screenshot](https://raw.githubusercontent.com/jurgen178/mcp-tool-explorer/main/doc/type1.png)
 <br />
-![MCP Tool Explorer screenshot](doc/type2.png)
+![MCP Tool Explorer screenshot](https://raw.githubusercontent.com/jurgen178/mcp-tool-explorer/main/doc/type2.png)
 <br />
-![MCP Tool Explorer screenshot](doc/type3.png)
+![MCP Tool Explorer screenshot](https://raw.githubusercontent.com/jurgen178/mcp-tool-explorer/main/doc/type3.png)
 <br />
-![MCP Tool Explorer screenshot](doc/type4.png)
+![MCP Tool Explorer screenshot](https://raw.githubusercontent.com/jurgen178/mcp-tool-explorer/main/doc/type4.png)
 <br />
-![MCP Tool Explorer screenshot](doc/type5.png)
+![MCP Tool Explorer screenshot](https://raw.githubusercontent.com/jurgen178/mcp-tool-explorer/main/doc/type5.png)
 <br />
 
 ---
