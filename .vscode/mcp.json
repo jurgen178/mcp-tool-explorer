@@ -2,7 +2,7 @@
 	"servers": {
 		"McpSample.Server": {
 			"type": "stdio",
-			"command": "McpSample.Server/bin/Debug/net8.0/McpSample.Server.exe"
+			"command": "C:/mcp/mcp-test/McpSample.Server/bin/Debug/net8.0/McpSample.Server.exe"
 		},
 		"McpSample.Server.http": {
 			"url": "http://localhost:3001/mcp"

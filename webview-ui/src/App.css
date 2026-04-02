@@ -259,6 +259,12 @@ body {
 }
 .json-box.is-error { border-color: var(--vscode-charts-red, #f44747); }
 
+.log-json-wrap .json-box {
+  font-size: 11px;
+  padding: 6px 10px;
+  max-height: 300px;
+}
+
 /* ── Misc ────────────────────────────────────────────────────────────────── */
 .empty-state {
   display: flex;

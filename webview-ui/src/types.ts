@@ -109,5 +109,5 @@ export type MessageToWebview =
   | { type: 'resourceContent'; requestId: string; content: unknown }
   | { type: 'promptsListed'; serverId: string; prompts: McpPrompt[] }
   | { type: 'promptContent'; requestId: string; content: unknown }
-  | { type: 'connectionLog'; serverId: string; log: { timestamp: number; level: 'info' | 'warn' | 'error'; message: string; detail?: string } }
+  | { type: 'connectionLog'; serverId: string; log: { timestamp: number; level: 'info' | 'warn' | 'error'; message: string; detail?: string | { kind: 'request' | 'response' | 'request-headers' | 'response-headers' | 'error' | 'text'; content: string }[] } }
   | { type: 'error'; message: string; requestId?: string };

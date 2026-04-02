@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ConnectionLogEntry } from '../App';
+import type { ConnectionLogEntry, LogSection } from '../App';
 import CopyButton from './CopyButton';
+import JsonViewer from './JsonViewer';
 
 interface Props {
   logs: ConnectionLogEntry[];
@@ -19,12 +20,89 @@ const LEVEL_COLORS: Record<string, string> = {
   error: 'var(--vscode-charts-red, #f44747)',
 };
 
+const SECTION_LABELS: Record<string, string> = {
+  'request':          'Request',
+  'response':         'Response',
+  'request-headers':  'Request Headers',
+  'response-headers': 'Response Headers',
+  'error':            'Error',
+  'text':             'Info',
+};
+
+const SECTION_LABEL_COLORS: Record<string, string> = {
+  'request':          'var(--vscode-charts-blue, #3794ff)',
+  'response':         'var(--vscode-charts-green, #89d185)',
+  'request-headers':  'var(--vscode-symbolIcon-variableForeground, #75beff)',
+  'response-headers': 'var(--vscode-symbolIcon-variableForeground, #75beff)',
+  'error':            'var(--vscode-charts-red, #f44747)',
+  'text':             'var(--vscode-descriptionForeground)',
+};
+
+// ── Section renderer ───────────────────────────────────────────────────────
+
+const PRE_STYLE: React.CSSProperties = {
+  padding: '6px 10px',
+  background: 'var(--vscode-textCodeBlock-background, #1e1e1e)',
+  border: '1px solid var(--vscode-widget-border, #333)',
+  borderRadius: 3,
+  fontSize: 11,
+  lineHeight: 1.5,
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-all',
+  overflowX: 'auto',
+  maxHeight: 300,
+  overflowY: 'auto',
+  margin: 0,
+};
+
+function DetailSections({ sections }: { sections: LogSection[] }) {
+  const isJson = (kind: string) => kind === 'request' || kind === 'response';
+  return (
+    <div>
+      {sections.map((section, i) => {
+        let parsed: unknown = undefined;
+        if (isJson(section.kind)) {
+          try { parsed = JSON.parse(section.content); } catch { /* plain text fallback */ }
+        }
+        return (
+          <div key={i} style={{ marginTop: i > 0 ? 8 : 0 }}>
+            <div style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: SECTION_LABEL_COLORS[section.kind],
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+              marginBottom: 3,
+            }}>
+              {SECTION_LABELS[section.kind] ?? section.kind}
+            </div>
+            <div className={isJson(section.kind) ? 'log-json-wrap' : undefined}>
+              {parsed !== undefined
+                ? <JsonViewer data={parsed} />
+                : <pre style={PRE_STYLE}>{section.content}</pre>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+function serializeDetail(detail: string | LogSection[] | undefined): string {
+  if (!detail) return '';
+  if (typeof detail === 'string') return detail;
+  return detail.map(s => `[${SECTION_LABELS[s.kind] ?? s.kind}]\n${s.content}`).join('\n\n');
+}
+
+// ── Main component ─────────────────────────────────────────────────────────
+
 export default function ConnectionLogPanel({ logs, onClear }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [expandedIdx, setExpandedIdx] = useState<Set<number>>(new Set());
   const [allCopied, setAllCopied] = useState(false);
 
-  // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs.length]);
@@ -40,7 +118,7 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
 
   const handleCopyAll = useCallback(() => {
     const text = logs.map(l =>
-      `[${formatTime(l.timestamp)}] [${l.level.toUpperCase()}] ${l.message}${l.detail ? '\n' + l.detail : ''}`
+      `[${formatTime(l.timestamp)}] [${l.level.toUpperCase()}] ${l.message}${l.detail ? '\n' + serializeDetail(l.detail) : ''}`
     ).join('\n\n');
     navigator.clipboard.writeText(text).then(() => {
       setAllCopied(true);
@@ -82,22 +160,24 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
         ) : (
           logs.map((entry, idx) => {
             const isExpanded = expandedIdx.has(idx);
+            const hasDetail = !!entry.detail && (typeof entry.detail === 'string' ? entry.detail.length > 0 : entry.detail.length > 0);
+            // Render RPC badge inline: "HTTP POST /mcp (tools/list)  →  200 OK"
+            // → "HTTP POST /mcp [tools/list] → 200 OK"
+            const rpcMatch = entry.message.match(/^(.*?)\s*\(([^)]+)\)\s*(→.*)$/);
+            const messageParts = rpcMatch
+              ? { before: rpcMatch[1], badge: rpcMatch[2], after: rpcMatch[3] }
+              : null;
             return (
               <div
                 key={idx}
                 style={{
                   borderBottom: '1px solid var(--vscode-widget-border, #2d2d2d)',
-                  cursor: entry.detail ? 'pointer' : 'default',
+                  cursor: hasDetail ? 'pointer' : 'default',
                 }}
-                onClick={() => entry.detail && toggleExpand(idx)}
+                onClick={() => hasDetail && toggleExpand(idx)}
               >
                 {/* Summary line */}
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 8,
-                  padding: '4px 14px',
-                }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '4px 14px' }}>
                   <span style={{ color: 'var(--vscode-descriptionForeground)', flexShrink: 0, fontSize: 11 }}>
                     {formatTime(entry.timestamp)}
                   </span>
@@ -111,16 +191,26 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
                   }}>
                     {entry.level}
                   </span>
-                  <span style={{
-                    flex: 1,
-                    whiteSpace: 'nowrap',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    fontSize: 11,
-                  }}>
-                    {entry.message}
+                  <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 11 }}>
+                    {messageParts ? (
+                      <>
+                        {messageParts.before}{' '}
+                        <span style={{
+                          fontSize: 10,
+                          fontWeight: 600,
+                          color: 'var(--vscode-badge-foreground, #fff)',
+                          background: 'var(--vscode-badge-background, #4d4d4d)',
+                          borderRadius: 3,
+                          padding: '1px 5px',
+                          verticalAlign: 'middle',
+                        }}>
+                          {messageParts.badge}
+                        </span>
+                        {' '}{messageParts.after}
+                      </>
+                    ) : entry.message}
                   </span>
-                  {entry.detail && (
+                  {hasDetail && (
                     <span style={{ flexShrink: 0, fontSize: 10, color: 'var(--vscode-descriptionForeground)' }}>
                       {isExpanded ? '▼' : '▶'}
                     </span>
@@ -128,25 +218,13 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
                 </div>
 
                 {/* Detail block (expanded) */}
-                {isExpanded && entry.detail && (
-                  <div className="json-viewer-wrap" style={{ margin: '0 14px 6px 70px' }}>
-                    <CopyButton text={entry.detail} />
-                    <pre style={{
-                      padding: '6px 10px',
-                      background: 'var(--vscode-textCodeBlock-background, #1e1e1e)',
-                      border: '1px solid var(--vscode-widget-border, #333)',
-                      borderRadius: 3,
-                      fontSize: 11,
-                      lineHeight: 1.5,
-                      whiteSpace: 'pre-wrap',
-                      wordBreak: 'break-all',
-                      overflowX: 'auto',
-                      maxHeight: 300,
-                      overflowY: 'auto',
-                      margin: 0,
-                    }}>
-                      {entry.detail}
-                    </pre>
+                {isExpanded && hasDetail && (
+                  <div className="json-viewer-wrap" style={{ margin: '0 14px 8px 70px' }}>
+                    <CopyButton text={serializeDetail(entry.detail)} />
+                    {typeof entry.detail === 'string'
+                      ? <pre style={PRE_STYLE}>{entry.detail}</pre>
+                      : <DetailSections sections={entry.detail ?? []} />
+                    }
                   </div>
                 )}
               </div>
@@ -158,3 +236,4 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
     </div>
   );
 }
+

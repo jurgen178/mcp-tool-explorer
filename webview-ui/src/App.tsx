@@ -14,11 +14,16 @@ import AddServerModal from './components/AddServerModal';
 
 // ── State & Reducer ──────────────────────────────────────────────────────────
 
+export interface LogSection {
+  kind: 'request' | 'response' | 'request-headers' | 'response-headers' | 'error' | 'text';
+  content: string;
+}
+
 export interface ConnectionLogEntry {
   timestamp: number;
   level: 'info' | 'warn' | 'error';
   message: string;
-  detail?: string;
+  detail?: string | LogSection[];
 }
 
 interface AppState {

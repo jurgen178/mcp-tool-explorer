@@ -6,11 +6,16 @@ import type { McpServerConfig, McpTool, McpResource, McpPrompt } from '../types'
 import { createOAuthHandler } from './McpOAuth';
 import { createLoggingFetch, type FetchLogEntry } from './LoggingFetch';
 
+export interface LogSection {
+  kind: 'request' | 'response' | 'request-headers' | 'response-headers' | 'error' | 'text';
+  content: string;
+}
+
 export interface ConnectionLogEntry {
   timestamp: number;
   level: 'info' | 'warn' | 'error';
   message: string;
-  detail?: string;
+  detail?: string | LogSection[];
 }
 
 interface ActiveConnection {
@@ -33,7 +38,7 @@ export class McpClientManager {
     this._onLog = listener;
   }
 
-  private _log(level: ConnectionLogEntry['level'], message: string, detail?: string): void {
+  private _log(level: ConnectionLogEntry['level'], message: string, detail?: string | LogSection[]): void {
     this._onLog?.({ timestamp: Date.now(), level, message, detail });
   }
 
@@ -41,30 +46,32 @@ export class McpClientManager {
     const statusStr = entry.status !== null ? `${entry.status} ${entry.statusText}` : 'NETWORK ERROR';
     const level: ConnectionLogEntry['level'] = entry.error ? 'error' : (entry.status && entry.status >= 400) ? 'warn' : 'info';
 
-    const lines = [
-      `${entry.method} ${entry.url}  →  ${statusStr}  (${entry.durationMs}ms)`,
-    ];
-    if (entry.rpcMethod) {
-      lines.push(`JSON-RPC method: ${entry.rpcMethod}`);
+    const sections: LogSection[] = [];
+
+    if (entry.requestBody) {
+      sections.push({ kind: 'request', content: entry.requestBody });
     }
     if (Object.keys(entry.requestHeaders).length > 0) {
-      lines.push('Request headers:');
-      for (const [k, v] of Object.entries(entry.requestHeaders)) lines.push(`  ${k}: ${v}`);
+      sections.push({
+        kind: 'request-headers',
+        content: Object.entries(entry.requestHeaders).map(([k, v]) => `  ${k}: ${v}`).join('\n'),
+      });
     }
-    if (entry.status !== null) {
-      lines.push('Response headers:');
-      for (const [k, v] of Object.entries(entry.responseHeaders)) lines.push(`  ${k}: ${v}`);
+    if (entry.responseBody) {
+      sections.push({ kind: 'response', content: entry.responseBody });
     }
-    if (entry.bodyExcerpt) {
-      lines.push('Response body (excerpt):');
-      lines.push(`  ${entry.bodyExcerpt}`);
+    if (entry.status !== null && Object.keys(entry.responseHeaders).length > 0) {
+      sections.push({
+        kind: 'response-headers',
+        content: Object.entries(entry.responseHeaders).map(([k, v]) => `  ${k}: ${v}`).join('\n'),
+      });
     }
     if (entry.error) {
-      lines.push(`Error: ${entry.error}`);
+      sections.push({ kind: 'error', content: entry.error });
     }
 
     const rpcLabel = entry.rpcMethod ? ` (${entry.rpcMethod})` : '';
-    this._log(level, `HTTP ${entry.method} ${new URL(entry.url).pathname}${rpcLabel}  →  ${statusStr}`, lines.join('\n'));
+    this._log(level, `HTTP ${entry.method} ${new URL(entry.url).pathname}${rpcLabel}  →  ${statusStr}`, sections.length > 0 ? sections : undefined);
   }
 
   isConnected(serverId: string): boolean {
