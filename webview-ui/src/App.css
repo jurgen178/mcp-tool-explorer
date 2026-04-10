@@ -257,6 +257,44 @@ body {
   white-space: pre;
   line-height: 1.5;
 }
+.json-tree-box {
+  white-space: normal;
+}
+.json-tree {
+  white-space: pre;
+}
+.json-tree-node {
+  display: block;
+}
+.json-tree-children,
+.json-embedded-block {
+  padding-left: 18px;
+}
+.json-tree-line {
+  display: block;
+}
+.json-disclosure {
+  font: inherit;
+  color: var(--vscode-textLink-foreground, #4ea1ff);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.json-disclosure {
+  width: 16px;
+  margin-right: 2px;
+  padding: 0;
+}
+.json-disclosure-spacer {
+  display: inline-block;
+  width: 18px;
+}
+.json-disclosure:hover {
+  text-decoration: underline;
+}
+.json-collapsed-preview {
+  color: var(--vscode-descriptionForeground);
+}
 .json-box.is-error { border-color: var(--vscode-charts-red, #f44747); }
 
 .log-json-wrap .json-box {

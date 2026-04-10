@@ -244,7 +244,7 @@ export default function ToolsPanel({
                 {(() => {
                   const interp = interpretations.find(i => i.id === activeResultTab);
                   return activeResultTab === 'raw' || !interp
-                    ? <JsonViewer data={result.data} isError={result.isError} />
+                    ? <JsonViewer data={result.data} isError={result.isError} allowSmartView={false} />
                     : renderInterpretation(interp);
                 })()}
               </div>
