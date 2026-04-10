@@ -229,7 +229,6 @@ function SmartJsonContainerNode({ name, value, trailingComma }: SmartJsonNodePro
                 />
               ))}
           <div className="json-tree-line">
-            <span className="json-disclosure-spacer" />
             <span className="jt-punc">{close}</span>
             {trailingComma && <span className="jt-punc">,</span>}
           </div>

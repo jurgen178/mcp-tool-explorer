@@ -114,8 +114,8 @@ body {
 .status-badge {
   font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 600;
 }
-.status-badge-connected    { background: var(--vscode-charts-green, #4ec9b0); color: #000; }
-.status-badge-connecting   { background: var(--vscode-charts-yellow, #e5c07b); color: #000; }
+.status-badge-connected    { background: var(--vscode-charts-green, #4ec9b0); color: #fff; }
+.status-badge-connecting   { background: var(--vscode-charts-yellow, #e5c07b); color: #fff; }
 .status-badge-disconnected { background: var(--vscode-charts-gray, #666); color: #fff; }
 .status-badge-error        { background: var(--vscode-charts-red, #f44747); color: #fff; }
 
@@ -284,10 +284,6 @@ body {
   width: 16px;
   margin-right: 2px;
   padding: 0;
-}
-.json-disclosure-spacer {
-  display: inline-block;
-  width: 18px;
 }
 .json-disclosure:hover {
   text-decoration: underline;
