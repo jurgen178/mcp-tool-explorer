@@ -45,6 +45,8 @@ function renderInterpretation(interp: ResultInterpretation) {
       </div>
     );
   }
+  // The dedicated Raw tab is handled outside this renderer. Any remaining
+  // interpretation is structured data and should use the JSON viewer.
   return <JsonViewer data={interp.data} />;
 }
 
@@ -69,6 +71,8 @@ function validateJsonArgs(json: string, schema: InputSchema): { errors: string[]
     }
   }
   if (schema.properties) {
+    // Unknown fields are warnings, not hard errors, so users can still try
+    // vendor-specific or forward-compatible arguments when needed.
     const known = Object.keys(schema.properties);
     for (const key of Object.keys(obj)) {
       if (!known.includes(key)) warnings.push(`Unknown property: "${key}"`);
@@ -115,6 +119,8 @@ export default function ToolsPanel({
   const handleRun = (argsOverride?: Record<string, unknown>) => {
     if (!selectedTool) return;
     let args: Record<string, unknown>;
+    // Re-runs, JSON mode, and form mode all converge here so request tracking,
+    // history, and result tabs stay consistent regardless of how a call starts.
     if (argsOverride !== undefined) {
       args = argsOverride;
       setJsonArgs(JSON.stringify(argsOverride, null, 2));
@@ -138,7 +144,8 @@ export default function ToolsPanel({
     [result]
   );
 
-  // Reset the active tab whenever a new result arrives.
+  // Prefer the first structured interpretation for new results, while still
+  // keeping Raw available as a manual fallback tab.
   useEffect(() => {
     if (result?.status === 'done' || result?.status === 'error') {
       const interps = interpretResult(result.data);
@@ -316,6 +323,8 @@ function buildArgs(tool: McpTool, values: Record<string, string>): Record<string
   for (const [key, schema] of Object.entries(props)) {
     const val = values[key];
     if (val === undefined || val === '') continue;
+    // Form mode only does lightweight scalar coercion. Nested objects and arrays
+    // are expected to come from the dedicated JSON input mode.
     if (schema.type === 'number' || schema.type === 'integer') args[key] = Number(val);
     else if (schema.type === 'boolean') args[key] = val === 'true';
     else args[key] = val;

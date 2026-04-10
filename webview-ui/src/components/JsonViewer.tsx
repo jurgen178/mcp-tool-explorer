@@ -66,6 +66,8 @@ function isContainer(value: unknown): value is Record<string, unknown> | unknown
   return Array.isArray(value) || (typeof value === 'object' && value !== null);
 }
 
+// Some tool results embed a second JSON document inside a string field.
+// When that happens, treat the string as structured data in the smart view.
 function tryParseEmbeddedJson(value: string): Record<string, unknown> | unknown[] | null {
   const trimmed = value.trim();
   if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
@@ -77,6 +79,8 @@ function tryParseEmbeddedJson(value: string): Record<string, unknown> | unknown[
   }
 }
 
+// Copy from the smart view should preserve the interpreted structure, not the
+// original escaped string form. This recursively expands embedded JSON strings.
 function normalizeEmbeddedJson(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
   if (typeof value === 'string') {
     const embedded = tryParseEmbeddedJson(value);
@@ -142,6 +146,8 @@ function SmartJsonPrimitiveNode({ name, value, trailingComma }: SmartJsonNodePro
   if (typeof value === 'string') {
     const embedded = tryParseEmbeddedJson(value);
     if (embedded) {
+      // Render embedded JSON under the same key so fields like "insightsText"
+      // behave like nested objects instead of opaque escaped strings.
       return (
         <SmartEmbeddedJsonNode
           name={name}
@@ -172,6 +178,8 @@ function SmartEmbeddedJsonNode({ name, embedded, trailingComma }: SmartEmbeddedJ
 }
 
 function SmartJsonContainerNode({ name, value, trailingComma }: SmartJsonNodeProps & { value: Record<string, unknown> | unknown[] }) {
+  // Each container tracks its own expanded state so the tree can be explored
+  // independently at every nesting level.
   const [expanded, setExpanded] = useState(true);
   const isArray = Array.isArray(value);
   const entries = isArray ? value : Object.entries(value);
@@ -242,6 +250,8 @@ export default function JsonViewer({ data, isError, allowSmartView = true }: Pro
   const raw = useMemo(() => JSON.stringify(data, null, 2) ?? '', [data]);
   const canUseSmartView = allowSmartView && isContainer(data);
   const smartCopyText = useMemo(() => JSON.stringify(normalizeEmbeddedJson(data), null, 2) ?? '', [data]);
+  // Raw views copy the original serialized payload. Smart views copy the
+  // normalized structure with embedded JSON already expanded.
   const copyText = canUseSmartView ? smartCopyText : raw;
 
   const tokens = useMemo(() => {

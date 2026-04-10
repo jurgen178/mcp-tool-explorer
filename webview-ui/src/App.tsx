@@ -260,6 +260,8 @@ export default function App() {
   // ── Actions ─────────────────────────────────────────────────────────────
 
   const handleConnect = (serverId: string) => {
+    // Start each connection attempt with a fresh log so transport diagnostics are
+    // scoped to the current session instead of accumulating across reconnects.
     dispatch({ type: 'CONNECTION_LOG_CLEAR', serverId });
     dispatch({ type: 'CONNECTING', serverId });
     postMessage({ type: 'connect', serverId });
@@ -286,6 +288,8 @@ export default function App() {
     dispatch({ type: 'REQUEST_STARTED', requestId });
     dispatch({
       type: 'HISTORY_ADD',
+      // Insert a pending history row immediately so users can see in-flight work
+      // before the extension posts the final response back to the webview.
       entry: {
         id: requestId,
         serverId: state.selectedServerId ?? '',
@@ -297,10 +301,9 @@ export default function App() {
   };
 
   const handleRerun = (toolName: string, args: unknown) => {
-    // Switch to tools tab — ToolsPanel picks up the jump via selectedTool state internally
+    // History can rehydrate a previous tool invocation by redirecting back into
+    // ToolsPanel with the original args preloaded into JSON mode.
     dispatch({ type: 'SELECT_TAB', tab: 'tools' });
-    // Signal ToolsPanel to pre-load via a ref-based approach is done inside the panel;
-    // here we just surface the data via a prop
     setPendingRerun({ toolName, args });
   };
 

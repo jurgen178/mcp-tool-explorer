@@ -62,6 +62,8 @@ function DetailSections({ sections }: { sections: LogSection[] }) {
       {sections.map((section, i) => {
         let parsed: unknown = undefined;
         if (isJson(section.kind)) {
+          // Request and response bodies can be explored with the smart JSON
+          // viewer when they are valid JSON. Headers and text stay plain.
           try { parsed = JSON.parse(section.content); } catch { /* plain text fallback */ }
         }
         return (
@@ -93,6 +95,7 @@ function DetailSections({ sections }: { sections: LogSection[] }) {
 function serializeDetail(detail: string | LogSection[] | undefined): string {
   if (!detail) return '';
   if (typeof detail === 'string') return detail;
+  // Copying the log should keep the labeled section order from the UI.
   return detail.map(s => `[${SECTION_LABELS[s.kind] ?? s.kind}]\n${s.content}`).join('\n\n');
 }
 

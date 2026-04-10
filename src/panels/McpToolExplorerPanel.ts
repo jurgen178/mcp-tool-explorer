@@ -126,6 +126,8 @@ export class McpToolExplorerPanel {
         this._post({
           type: 'toolResult',
           requestId: message.requestId,
+          // The webview works directly with MCP content items so it can apply its
+          // own interpretation pipeline for raw, text, image, and JSON results.
           result: result.content,
           isError: result.isError === true,
         });
