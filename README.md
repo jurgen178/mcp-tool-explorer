@@ -89,10 +89,6 @@ If your workspace has a `.vscode/mcp.json` file, servers are discovered automati
     "my-http-server": {
       "type": "http",
       "url": "http://localhost:3000/mcp"
-    },
-    "my-sse-server": {
-      "type": "sse",
-      "url": "http://localhost:3001/sse"
     }
   }
 }
@@ -124,12 +120,6 @@ npm install
 
 # Build (webview + extension)
 npm run build
-
-# Watch mode (extension only)
-npm run watch:extension
-
-# Package as .vsix
-npm run package
 ```
 
 > The webview is a Vite + React app located in `webview-ui/`. Running `npm run build` at the root builds both the webview and the extension host automatically.
