@@ -34,11 +34,56 @@ function isJsonObjectOrArray(text: string): boolean {
   try { const p = JSON.parse(t); return typeof p === 'object' && p !== null; } catch { return false; }
 }
 
+function collectTextValues(raw: unknown, texts: string[], seen: WeakSet<object>) {
+  if (typeof raw === 'string') {
+    if (!isJsonObjectOrArray(raw)) {
+      texts.push(raw);
+    }
+    return;
+  }
+
+  if (Array.isArray(raw)) {
+    for (const item of raw) {
+      collectTextValues(item, texts, seen);
+    }
+    return;
+  }
+
+  if (typeof raw !== 'object' || raw === null) {
+    return;
+  }
+
+  if (seen.has(raw)) {
+    return;
+  }
+  seen.add(raw);
+
+  for (const [key, value] of Object.entries(raw)) {
+    if (key === 'text' && typeof value === 'string') {
+      if (!isJsonObjectOrArray(value)) {
+        texts.push(value);
+      }
+      continue;
+    }
+
+    collectTextValues(value, texts, seen);
+  }
+}
+
+export function extractTextValues(raw: unknown): string[] {
+  if (isMcpContentArray(raw)) {
+    return raw
+      .filter(item => item.type === 'text' && typeof item.text === 'string' && !isJsonObjectOrArray(item.text as string))
+      .map(item => item.text as string);
+  }
+
+  const texts: string[] = [];
+  collectTextValues(raw, texts, new WeakSet<object>());
+  return texts;
+}
+
 function tryTextInterpreter(raw: unknown): ResultInterpretation | null {
-  if (!isMcpContentArray(raw)) return null;
-  const texts = raw
-    .filter(item => item.type === 'text' && typeof item.text === 'string' && !isJsonObjectOrArray(item.text as string))
-    .map(item => item.text as string);
+  const texts = extractTextValues(raw);
   if (texts.length === 0) return null;
   return { id: 'text', label: 'Text', data: texts };
 }

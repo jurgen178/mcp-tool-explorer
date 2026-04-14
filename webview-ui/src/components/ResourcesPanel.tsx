@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { postMessage } from '../vscode';
 import type { McpResource, RequestEntry, RequestInfo, CapabilityLoadState } from '../types';
 import JsonViewer from './JsonViewer';
+import { extractTextValues } from '../resultInterpreters';
 
 interface Props {
   serverId: string;
@@ -18,6 +19,7 @@ function nextReqId() { return `res-${Date.now()}-${++reqCounter}`; }
 export default function ResourcesPanel({ serverId, resources, loadState, requests, isConnected, onStartRequest }: Props) {
   const [selected, setSelected] = useState<McpResource | null>(null);
   const [lastReqId, setLastReqId] = useState<string | null>(null);
+  const [activeResultTab, setActiveResultTab] = useState<'raw' | 'text'>('raw');
 
   useEffect(() => {
     if (!selected) return;
@@ -25,6 +27,7 @@ export default function ResourcesPanel({ serverId, resources, loadState, request
 
     setSelected(null);
     setLastReqId(null);
+    setActiveResultTab('raw');
   }, [resources, selected]);
 
   const handleRead = () => {
@@ -36,6 +39,16 @@ export default function ResourcesPanel({ serverId, resources, loadState, request
   };
 
   const result = lastReqId ? requests[lastReqId] : undefined;
+  const textResults = useMemo(
+    () => (result && result.status !== 'pending' ? extractTextValues(result.data) : []),
+    [result],
+  );
+
+  useEffect(() => {
+    if (result?.status === 'done' || result?.status === 'error') {
+      setActiveResultTab(textResults.length > 0 ? 'text' : 'raw');
+    }
+  }, [lastReqId, result?.status, textResults.length]);
 
   return (
     <div className="panel">
@@ -57,7 +70,7 @@ export default function ResourcesPanel({ serverId, resources, loadState, request
           <div
             key={r.uri}
             className={`list-item${selected?.uri === r.uri ? ' active' : ''}`}
-            onClick={() => { setSelected(r); setLastReqId(null); }}
+            onClick={() => { setSelected(r); setLastReqId(null); setActiveResultTab('raw'); }}
           >
             <div className="list-item-name">{r.name}</div>
             <div className="list-item-sub">{r.uri}</div>
@@ -98,8 +111,28 @@ export default function ResourcesPanel({ serverId, resources, loadState, request
                   <span className={`result-label${result.isError ? ' error' : ' ok'}`}>
                     {result.isError ? '✗ Error' : '✓ Content'}
                   </span>
+                  {textResults.length > 0 && (
+                    <div className="result-tabs">
+                      <button
+                        className={`result-tab${activeResultTab === 'raw' ? ' active' : ''}`}
+                        onClick={() => setActiveResultTab('raw')}
+                      >Raw</button>
+                      <button
+                        className={`result-tab${activeResultTab === 'text' ? ' active' : ''}`}
+                        onClick={() => setActiveResultTab('text')}
+                      >Text</button>
+                    </div>
+                  )}
                 </div>
-                <JsonViewer data={result.data} isError={result.isError} />
+                {activeResultTab === 'text' && textResults.length > 0 ? (
+                  <div className="text-result-list">
+                    {textResults.map((text, index) => (
+                      <pre key={index} className="text-result">{text}</pre>
+                    ))}
+                  </div>
+                ) : (
+                  <JsonViewer data={result.data} isError={result.isError} />
+                )}
               </div>
             )}
           </>
