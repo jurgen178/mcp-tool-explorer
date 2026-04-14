@@ -11,6 +11,7 @@ import PromptsPanel from './components/PromptsPanel';
 import HistoryPanel from './components/HistoryPanel';
 import ConnectionLogPanel from './components/ConnectionLogPanel';
 import AddServerModal from './components/AddServerModal';
+import CopyButton from './components/CopyButton';
 
 // ── State & Reducer ──────────────────────────────────────────────────────────
 
@@ -334,25 +335,31 @@ export default function App() {
           <>
             {/* Server header */}
             <div className="server-header">
-              <span className="server-header-name">{selectedServer.name}</span>
-              <span className={`status-badge status-badge-${selectedStatus}`}>
-                {selectedStatus === 'connecting' && <span className="spinner" />}
-                {selectedStatus}
-              </span>
-              {state.serverErrors[selectedServer.id] && (
-                <span style={{ fontSize: 11, color: 'var(--vscode-charts-red, #f44747)', flex: 1 }}>
-                  {state.serverErrors[selectedServer.id]}
+              <div className="server-header-main">
+                <span className="server-header-name">{selectedServer.name}</span>
+                <span className={`status-badge status-badge-${selectedStatus}`}>
+                  {selectedStatus === 'connecting' && <span className="spinner" />}
+                  {selectedStatus}
                 </span>
+                {selectedStatus === 'disconnected' || selectedStatus === 'error' ? (
+                  <button className="btn btn-primary server-header-action" onClick={() => handleConnect(selectedServer.id)}>
+                    Connect
+                  </button>
+                ) : selectedStatus === 'connected' ? (
+                  <button className="btn btn-secondary server-header-action" onClick={() => handleDisconnect(selectedServer.id)}>
+                    Disconnect
+                  </button>
+                ) : null}
+              </div>
+              {state.serverErrors[selectedServer.id] && (
+                <div className="server-error-banner json-viewer-wrap">
+                  <div className="server-error-banner-header">
+                    <span className="server-error-banner-title">Connection Error</span>
+                  </div>
+                  <CopyButton text={state.serverErrors[selectedServer.id]} />
+                  <pre className="server-error-banner-body">{state.serverErrors[selectedServer.id]}</pre>
+                </div>
               )}
-              {selectedStatus === 'disconnected' || selectedStatus === 'error' ? (
-                <button className="btn btn-primary" style={{ fontSize: 12 }} onClick={() => handleConnect(selectedServer.id)}>
-                  Connect
-                </button>
-              ) : selectedStatus === 'connected' ? (
-                <button className="btn btn-secondary" style={{ fontSize: 12 }} onClick={() => handleDisconnect(selectedServer.id)}>
-                  Disconnect
-                </button>
-              ) : null}
             </div>
 
             {/* Tab bar */}
@@ -447,10 +454,10 @@ export default function App() {
             ) : state.servers.length === 0 ? (
               <>
                 <p>No MCP servers found in this workspace.</p>
-                <p style={{ marginTop: 8 }}>
+                <p className="empty-state-secondary">
                   Add one manually or create a <code>.vscode/mcp.json</code> file.
                 </p>
-                <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={() => dispatch({ type: 'SHOW_ADD_SERVER', show: true })}>
+                <button className="btn btn-primary empty-state-action" onClick={() => dispatch({ type: 'SHOW_ADD_SERVER', show: true })}>
                   + Add Server
                 </button>
               </>

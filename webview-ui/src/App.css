@@ -103,12 +103,19 @@ body {
 
 .server-header {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
   padding: 7px 14px;
   background: var(--vscode-editorGroupHeader-tabsBackground, var(--vscode-editor-background));
   border-bottom: 1px solid var(--vscode-editorGroupHeader-tabsBorder, var(--vscode-widget-border, #444));
   flex-shrink: 0;
+}
+.server-header-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 .server-header-name { font-weight: 600; font-size: 14px; flex: 1; }
 .status-badge {
@@ -118,6 +125,42 @@ body {
 .status-badge-connecting   { background: var(--vscode-charts-yellow, #e5c07b); color: #fff; }
 .status-badge-disconnected { background: var(--vscode-charts-gray, #666); color: #fff; }
 .status-badge-error        { background: var(--vscode-charts-red, #f44747); color: #fff; }
+.server-header-action {
+  font-size: 12px;
+}
+.server-error-banner {
+  position: relative;
+  min-width: 0;
+}
+.server-error-banner-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.server-error-banner-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--vscode-charts-red, #f44747);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.server-error-banner-body {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 132px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--vscode-editor-font-family, 'Cascadia Code', monospace);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--vscode-inputValidation-errorForeground, var(--vscode-foreground));
+  background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
+  border: 1px solid var(--vscode-charts-red, #f44747);
+  border-radius: 3px;
+}
 
 /* ── Tabs ────────────────────────────────────────────────────────────────── */
 .tab-bar {
@@ -313,6 +356,8 @@ body {
 }
 .empty-state h2 { color: var(--vscode-foreground); font-size: 16px; }
 .empty-state p  { font-size: 13px; line-height: 1.5; max-width: 320px; }
+.empty-state-secondary { margin-top: 8px; }
+.empty-state-action { margin-top: 12px; }
 
 .section-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--vscode-descriptionForeground); margin-bottom: 8px; }
 
