@@ -210,20 +210,27 @@ export class McpToolExplorerPanel {
       error: reason instanceof Error ? reason.message : String(reason),
     });
 
-    const [tools, resources, prompts] = await Promise.allSettled([
-      this._clientManager.listTools(serverId),
-      this._clientManager.listResources(serverId),
-      this._clientManager.listPrompts(serverId),
+    const loadCapability = <T,>(
+      capability: CapabilityKind,
+      load: () => Promise<T>,
+      onSuccess: (value: T) => void,
+    ): Promise<void> => load()
+      .then(onSuccess)
+      .catch(reason => {
+        this._post(loadResultMessage(capability, reason));
+      });
+
+    await Promise.all([
+      loadCapability('tools', () => this._clientManager.listTools(serverId), tools => {
+        this._post({ type: 'toolsListed', serverId, tools });
+      }),
+      loadCapability('resources', () => this._clientManager.listResources(serverId), resources => {
+        this._post({ type: 'resourcesListed', serverId, resources });
+      }),
+      loadCapability('prompts', () => this._clientManager.listPrompts(serverId), prompts => {
+        this._post({ type: 'promptsListed', serverId, prompts });
+      }),
     ]);
-
-    if (tools.status === 'fulfilled') this._post({ type: 'toolsListed', serverId, tools: tools.value });
-    else this._post(loadResultMessage('tools', tools.reason));
-
-    if (resources.status === 'fulfilled') this._post({ type: 'resourcesListed', serverId, resources: resources.value });
-    else this._post(loadResultMessage('resources', resources.reason));
-
-    if (prompts.status === 'fulfilled') this._post({ type: 'promptsListed', serverId, prompts: prompts.value });
-    else this._post(loadResultMessage('prompts', prompts.reason));
   }
 
   private _post(message: MessageToWebview): void {
