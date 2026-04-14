@@ -57,6 +57,8 @@ export interface McpPrompt {
   }>;
 }
 
+export type CapabilityKind = 'tools' | 'resources' | 'prompts';
+
 // ── Messages: Webview → Extension ──────────────────────────────────────────
 
 export type MessageToExtension =
@@ -68,6 +70,7 @@ export type MessageToExtension =
   | { type: 'listResources'; serverId: string }
   | { type: 'readResource'; serverId: string; uri: string; requestId: string }
   | { type: 'listPrompts'; serverId: string }
+  | { type: 'completePromptArgument'; serverId: string; promptName: string; argumentName: string; value: string; contextArgs: Record<string, string>; requestId: string }
   | { type: 'getPrompt'; serverId: string; promptName: string; args: Record<string, string>; requestId: string }
   | { type: 'addServer'; config: Omit<McpServerConfig, 'id' | 'source'> }
   | { type: 'removeServer'; serverId: string };
@@ -81,11 +84,13 @@ export type MessageToWebview =
   | { type: 'connected'; serverId: string }
   | { type: 'disconnected'; serverId: string }
   | { type: 'connectionError'; serverId: string; error: string }
+  | { type: 'capabilityLoadFailed'; serverId: string; capability: CapabilityKind; error: string }
   | { type: 'toolsListed'; serverId: string; tools: McpTool[] }
   | { type: 'toolResult'; requestId: string; result: unknown; isError: boolean }
   | { type: 'resourcesListed'; serverId: string; resources: McpResource[] }
   | { type: 'resourceContent'; requestId: string; content: unknown }
   | { type: 'promptsListed'; serverId: string; prompts: McpPrompt[] }
+  | { type: 'promptArgumentCompletion'; requestId: string; argumentName: string; values: string[] }
   | { type: 'promptContent'; requestId: string; content: unknown }
   | { type: 'connectionLog'; serverId: string; log: { timestamp: number; level: 'info' | 'warn' | 'error'; message: string; detail?: string | { kind: string; content: string }[] } }
   | { type: 'error'; message: string; requestId?: string };

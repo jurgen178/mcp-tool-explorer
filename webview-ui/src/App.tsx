@@ -2,7 +2,7 @@ import React, { useReducer, useEffect } from 'react';
 import { postMessage } from './vscode';
 import type {
   McpServerConfig, McpTool, McpResource, McpPrompt,
-  MessageToWebview, ConnectionStatus, RequestEntry, RequestInfo, HistoryEntry,
+  MessageToWebview, ConnectionStatus, RequestEntry, RequestInfo, HistoryEntry, CapabilityKind, CapabilityLoadState,
 } from './types';
 import Sidebar from './components/Sidebar';
 import ToolsPanel from './components/ToolsPanel';
@@ -27,11 +27,31 @@ export interface ConnectionLogEntry {
   detail?: string | LogSection[];
 }
 
+type CapabilityLoadStateByKind = Record<CapabilityKind, Record<string, CapabilityLoadState>>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function normalizeRequestPayload(payload: unknown): { data: unknown; isError: boolean } {
+  if (isRecord(payload)) {
+    if (typeof payload.isError === 'boolean') {
+      return { data: payload, isError: payload.isError };
+    }
+    if (isRecord(payload.result) && typeof payload.result.isError === 'boolean') {
+      return { data: payload.result, isError: payload.result.isError };
+    }
+  }
+
+  return { data: payload, isError: false };
+}
+
 interface AppState {
   servers: McpServerConfig[];
   serversLoading: boolean;
   serverStatus: Record<string, ConnectionStatus>;
   serverErrors: Record<string, string>;
+  capabilityLoadState: CapabilityLoadStateByKind;
   selectedServerId: string | null;
   activeTab: 'tools' | 'resources' | 'prompts' | 'history' | 'log';
   tools: Record<string, McpTool[]>;
@@ -51,6 +71,7 @@ type Action =
   | { type: 'CONNECTED'; serverId: string }
   | { type: 'DISCONNECTED'; serverId: string }
   | { type: 'CONNECTION_ERROR'; serverId: string; error: string }
+  | { type: 'CAPABILITY_LOAD_FAILED'; serverId: string; capability: CapabilityKind }
   | { type: 'TOOLS_LISTED'; serverId: string; tools: McpTool[] }
   | { type: 'RESOURCES_LISTED'; serverId: string; resources: McpResource[] }
   | { type: 'PROMPTS_LISTED'; serverId: string; prompts: McpPrompt[] }
@@ -71,6 +92,11 @@ const initialState: AppState = {
   serversLoading: true,
   serverStatus: {},
   serverErrors: {},
+  capabilityLoadState: {
+    tools: {},
+    resources: {},
+    prompts: {},
+  },
   selectedServerId: null,
   activeTab: 'tools',
   tools: {},
@@ -81,6 +107,33 @@ const initialState: AppState = {
   connectionLogs: {},
   showAddServer: false,
 };
+
+function setCapabilityState(
+  capabilityLoadState: CapabilityLoadStateByKind,
+  capability: CapabilityKind,
+  serverId: string,
+  loadState: CapabilityLoadState,
+): CapabilityLoadStateByKind {
+  return {
+    ...capabilityLoadState,
+    [capability]: {
+      ...capabilityLoadState[capability],
+      [serverId]: loadState,
+    },
+  };
+}
+
+function setAllCapabilityStates(
+  capabilityLoadState: CapabilityLoadStateByKind,
+  serverId: string,
+  loadState: CapabilityLoadState,
+): CapabilityLoadStateByKind {
+  return {
+    tools: { ...capabilityLoadState.tools, [serverId]: loadState },
+    resources: { ...capabilityLoadState.resources, [serverId]: loadState },
+    prompts: { ...capabilityLoadState.prompts, [serverId]: loadState },
+  };
+}
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -93,6 +146,11 @@ function reducer(state: AppState, action: Action): AppState {
         serverStatus: Object.fromEntries(
           action.servers.map(s => [s.id, state.serverStatus[s.id] ?? 'disconnected']),
         ),
+        capabilityLoadState: {
+          tools: Object.fromEntries(action.servers.map(s => [s.id, state.capabilityLoadState.tools[s.id] ?? 'idle'])),
+          resources: Object.fromEntries(action.servers.map(s => [s.id, state.capabilityLoadState.resources[s.id] ?? 'idle'])),
+          prompts: Object.fromEntries(action.servers.map(s => [s.id, state.capabilityLoadState.prompts[s.id] ?? 'idle'])),
+        },
       };
 
     case 'SERVER_ADDED':
@@ -100,23 +158,46 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         servers: [...state.servers, action.server],
         serverStatus: { ...state.serverStatus, [action.server.id]: 'disconnected' },
+        capabilityLoadState: setAllCapabilityStates(state.capabilityLoadState, action.server.id, 'idle'),
       };
 
     case 'SERVER_REMOVED': {
       const servers = state.servers.filter(s => s.id !== action.serverId);
       const { [action.serverId]: _ss, ...serverStatus } = state.serverStatus;
       const { [action.serverId]: _se, ...serverErrors } = state.serverErrors;
+      const { [action.serverId]: _toolState, ...toolLoadState } = state.capabilityLoadState.tools;
+      const { [action.serverId]: _resourceState, ...resourceLoadState } = state.capabilityLoadState.resources;
+      const { [action.serverId]: _promptState, ...promptLoadState } = state.capabilityLoadState.prompts;
       const { [action.serverId]: _t, ...tools } = state.tools;
       const { [action.serverId]: _r, ...resources } = state.resources;
       const { [action.serverId]: _p, ...prompts } = state.prompts;
       return {
-        ...state, servers, serverStatus, serverErrors, tools, resources, prompts,
+        ...state,
+        servers,
+        serverStatus,
+        serverErrors,
+        capabilityLoadState: {
+          tools: toolLoadState,
+          resources: resourceLoadState,
+          prompts: promptLoadState,
+        },
+        tools,
+        resources,
+        prompts,
         selectedServerId: state.selectedServerId === action.serverId ? null : state.selectedServerId,
       };
     }
 
     case 'CONNECTING':
-      return { ...state, serverStatus: { ...state.serverStatus, [action.serverId]: 'connecting' } };
+      return {
+        ...state,
+        serverStatus: { ...state.serverStatus, [action.serverId]: 'connecting' },
+        serverErrors: { ...state.serverErrors, [action.serverId]: '' },
+        capabilityLoadState: setAllCapabilityStates(state.capabilityLoadState, action.serverId, 'loading'),
+        tools: { ...state.tools, [action.serverId]: [] },
+        resources: { ...state.resources, [action.serverId]: [] },
+        prompts: { ...state.prompts, [action.serverId]: [] },
+      };
 
     case 'CONNECTED':
       return {
@@ -129,6 +210,7 @@ function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         serverStatus: { ...state.serverStatus, [action.serverId]: 'disconnected' },
+        capabilityLoadState: setAllCapabilityStates(state.capabilityLoadState, action.serverId, 'idle'),
         tools: { ...state.tools, [action.serverId]: [] },
         resources: { ...state.resources, [action.serverId]: [] },
         prompts: { ...state.prompts, [action.serverId]: [] },
@@ -139,16 +221,35 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         serverStatus: { ...state.serverStatus, [action.serverId]: 'error' },
         serverErrors: { ...state.serverErrors, [action.serverId]: action.error },
+        capabilityLoadState: setAllCapabilityStates(state.capabilityLoadState, action.serverId, 'error'),
+      };
+
+    case 'CAPABILITY_LOAD_FAILED':
+      return {
+        ...state,
+        capabilityLoadState: setCapabilityState(state.capabilityLoadState, action.capability, action.serverId, 'error'),
       };
 
     case 'TOOLS_LISTED':
-      return { ...state, tools: { ...state.tools, [action.serverId]: action.tools } };
+      return {
+        ...state,
+        tools: { ...state.tools, [action.serverId]: action.tools },
+        capabilityLoadState: setCapabilityState(state.capabilityLoadState, 'tools', action.serverId, 'loaded'),
+      };
 
     case 'RESOURCES_LISTED':
-      return { ...state, resources: { ...state.resources, [action.serverId]: action.resources } };
+      return {
+        ...state,
+        resources: { ...state.resources, [action.serverId]: action.resources },
+        capabilityLoadState: setCapabilityState(state.capabilityLoadState, 'resources', action.serverId, 'loaded'),
+      };
 
     case 'PROMPTS_LISTED':
-      return { ...state, prompts: { ...state.prompts, [action.serverId]: action.prompts } };
+      return {
+        ...state,
+        prompts: { ...state.prompts, [action.serverId]: action.prompts },
+        capabilityLoadState: setCapabilityState(state.capabilityLoadState, 'prompts', action.serverId, 'loaded'),
+      };
 
     case 'REQUEST_STARTED':
       return { ...state, requests: { ...state.requests, [action.requestId]: { status: 'pending' } } };
@@ -168,7 +269,7 @@ function reducer(state: AppState, action: Action): AppState {
           ...state,
           requests: {
             ...state.requests,
-            [action.requestId]: { status: 'error', errorMsg: action.message },
+            [action.requestId]: { status: 'error', data: action.message, errorMsg: action.message, isError: true },
           },
         };
       }
@@ -237,6 +338,7 @@ export default function App() {
         case 'connected':       dispatch({ type: 'CONNECTED',         serverId: msg.serverId }); break;
         case 'disconnected':    dispatch({ type: 'DISCONNECTED',      serverId: msg.serverId }); break;
         case 'connectionError': dispatch({ type: 'CONNECTION_ERROR',  serverId: msg.serverId, error: msg.error }); dispatch({ type: 'SELECT_TAB', tab: 'log' }); break;
+        case 'capabilityLoadFailed': dispatch({ type: 'CAPABILITY_LOAD_FAILED', serverId: msg.serverId, capability: msg.capability }); break;
         case 'toolsListed':     dispatch({ type: 'TOOLS_LISTED',      serverId: msg.serverId, tools: msg.tools }); break;
         case 'resourcesListed': dispatch({ type: 'RESOURCES_LISTED',  serverId: msg.serverId, resources: msg.resources }); break;
         case 'promptsListed':   dispatch({ type: 'PROMPTS_LISTED',    serverId: msg.serverId, prompts: msg.prompts }); break;
@@ -244,8 +346,11 @@ export default function App() {
         case 'toolResult':
         case 'resourceContent':
         case 'promptContent': {
-          const data = msg.type === 'toolResult' ? msg.result : msg.content;
-          const isError = msg.type === 'toolResult' ? msg.isError : false;
+          const payload = msg.type === 'toolResult' ? msg.result : msg.content;
+          const normalized = msg.type === 'toolResult'
+            ? { data: msg.result, isError: msg.isError }
+            : normalizeRequestPayload(payload);
+          const { data, isError } = normalized;
           dispatch({ type: 'REQUEST_DONE', requestId: msg.requestId, data, isError });
           dispatch({ type: 'HISTORY_UPDATE', id: msg.requestId, status: isError ? 'error' : 'done', result: data, isError });
           break;
@@ -411,10 +516,10 @@ export default function App() {
               <ToolsPanel
                 serverId={selectedServer.id}
                 tools={state.tools[selectedServer.id] ?? []}
+                loadState={state.capabilityLoadState.tools[selectedServer.id] ?? 'idle'}
                 history={state.history.filter(e => e.serverId === selectedServer.id && e.type === 'tool')}
                 requests={state.requests}
                 isConnected={isConnected}
-                isConnecting={selectedStatus === 'connecting'}
                 pendingRerun={pendingRerun}
                 onPendingRerunConsumed={() => setPendingRerun(null)}
                 onStartRequest={handleStartRequest}
@@ -424,6 +529,7 @@ export default function App() {
               <ResourcesPanel
                 serverId={selectedServer.id}
                 resources={state.resources[selectedServer.id] ?? []}
+                loadState={state.capabilityLoadState.resources[selectedServer.id] ?? 'idle'}
                 requests={state.requests}
                 isConnected={isConnected}
                 onStartRequest={handleStartRequest}
@@ -433,6 +539,7 @@ export default function App() {
               <PromptsPanel
                 serverId={selectedServer.id}
                 prompts={state.prompts[selectedServer.id] ?? []}
+                loadState={state.capabilityLoadState.prompts[selectedServer.id] ?? 'idle'}
                 requests={state.requests}
                 isConnected={isConnected}
                 onStartRequest={handleStartRequest}

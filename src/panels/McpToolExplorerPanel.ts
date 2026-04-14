@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { McpClientManager } from '../mcp/McpClientManager';
 import { McpConfigDiscovery } from '../mcp/McpConfigDiscovery';
-import type { McpServerConfig, MessageToExtension, MessageToWebview } from '../types';
+import type { CapabilityKind, McpServerConfig, MessageToExtension, MessageToWebview } from '../types';
 
 export class McpToolExplorerPanel {
   public static currentPanel: McpToolExplorerPanel | undefined;
@@ -158,6 +158,22 @@ export class McpToolExplorerPanel {
         break;
       }
 
+      case 'completePromptArgument': {
+        try {
+          const values = await this._clientManager.completePromptArgument(
+            message.serverId,
+            message.promptName,
+            message.argumentName,
+            message.value,
+            message.contextArgs,
+          );
+          this._post({ type: 'promptArgumentCompletion', requestId: message.requestId, argumentName: message.argumentName, values });
+        } catch {
+          this._post({ type: 'promptArgumentCompletion', requestId: message.requestId, argumentName: message.argumentName, values: [] });
+        }
+        break;
+      }
+
       case 'addServer': {
         const server = this._configDiscovery.addManualServer(message.config);
         this._servers.set(server.id, server);
@@ -187,19 +203,34 @@ export class McpToolExplorerPanel {
 
   /** Best-effort: load tools, resources, and prompts after a successful connect. */
   private async _loadCapabilities(serverId: string): Promise<void> {
-    const tryLoad = async <T>(fn: () => Promise<T>): Promise<T | null> => {
-      try { return await fn(); } catch { return null; }
-    };
+    const loadResultMessage = (capability: CapabilityKind, reason: unknown): MessageToWebview => ({
+      type: 'capabilityLoadFailed',
+      serverId,
+      capability,
+      error: reason instanceof Error ? reason.message : String(reason),
+    });
 
-    const [tools, resources, prompts] = await Promise.all([
-      tryLoad(() => this._clientManager.listTools(serverId)),
-      tryLoad(() => this._clientManager.listResources(serverId)),
-      tryLoad(() => this._clientManager.listPrompts(serverId)),
+    const loadCapability = <T,>(
+      capability: CapabilityKind,
+      load: () => Promise<T>,
+      onSuccess: (value: T) => void,
+    ): Promise<void> => load()
+      .then(onSuccess)
+      .catch(reason => {
+        this._post(loadResultMessage(capability, reason));
+      });
+
+    await Promise.all([
+      loadCapability('tools', () => this._clientManager.listTools(serverId), tools => {
+        this._post({ type: 'toolsListed', serverId, tools });
+      }),
+      loadCapability('resources', () => this._clientManager.listResources(serverId), resources => {
+        this._post({ type: 'resourcesListed', serverId, resources });
+      }),
+      loadCapability('prompts', () => this._clientManager.listPrompts(serverId), prompts => {
+        this._post({ type: 'promptsListed', serverId, prompts });
+      }),
     ]);
-
-    if (tools)     this._post({ type: 'toolsListed',     serverId, tools });
-    if (resources) this._post({ type: 'resourcesListed', serverId, resources });
-    if (prompts)   this._post({ type: 'promptsListed',   serverId, prompts });
   }
 
   private _post(message: MessageToWebview): void {
