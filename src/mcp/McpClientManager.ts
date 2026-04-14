@@ -42,6 +42,20 @@ export class McpClientManager {
     this._onLog?.({ timestamp: Date.now(), level, message, detail });
   }
 
+  private async _measure<T>(label: string, operation: () => Promise<T>): Promise<T> {
+    const startedAt = Date.now();
+    this._log('info', `${label} started`);
+
+    try {
+      const result = await operation();
+      this._log('info', `${label} finished in ${Date.now() - startedAt}ms`);
+      return result;
+    } catch (error: unknown) {
+      this._log('error', `${label} failed after ${Date.now() - startedAt}ms`, error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  }
+
   private _logFetchEntry(entry: FetchLogEntry): void {
     const statusStr = entry.status !== null ? `${entry.status} ${entry.statusText}` : 'NETWORK ERROR';
     const level: ConnectionLogEntry['level'] = entry.error ? 'error' : (entry.status && entry.status >= 400) ? 'warn' : 'info';
@@ -111,7 +125,7 @@ export class McpClientManager {
 
     try {
       this._log('info', `Attempting ${config.type.toUpperCase()} transport…`);
-      await client.connect(transport);
+      await this._measure(`Connect ${config.type.toUpperCase()} transport`, () => client.connect(transport));
       this._log('info', `Connected successfully via ${config.type.toUpperCase()}.`);
     } catch (e: unknown) {
       const baseMsg = e instanceof Error ? e.message : String(e);
@@ -129,7 +143,7 @@ export class McpClientManager {
         );
         const sseTransport = this._createTransport({ ...config, type: 'sse' });
         try {
-          await sseClient.connect(sseTransport);
+          await this._measure('Connect SSE transport fallback', () => sseClient.connect(sseTransport));
           this._log('info', 'Connected successfully via SSE.');
           this._connections.set(config.id, { client: sseClient, config });
           return;
@@ -163,7 +177,7 @@ export class McpClientManager {
       this._log('info', 'Tools not supported by this server.');
       return [];
     }
-    const { tools } = await this._client(serverId).listTools();
+    const { tools } = await this._measure('List tools', () => this._client(serverId).listTools());
     return tools as McpTool[];
   }
 
@@ -176,7 +190,7 @@ export class McpClientManager {
       this._log('info', 'Resources not supported by this server.');
       return [];
     }
-    const { resources } = await this._client(serverId).listResources();
+    const { resources } = await this._measure('List resources', () => this._client(serverId).listResources());
     return resources as McpResource[];
   }
 
@@ -189,7 +203,7 @@ export class McpClientManager {
       this._log('info', 'Prompts not supported by this server.');
       return [];
     }
-    const { prompts } = await this._client(serverId).listPrompts();
+    const { prompts } = await this._measure('List prompts', () => this._client(serverId).listPrompts());
     return prompts as McpPrompt[];
   }
 
