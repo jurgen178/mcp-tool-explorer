@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { postMessage } from '../vscode';
-import type { McpPrompt, RequestEntry, RequestInfo } from '../types';
+import type { McpPrompt, RequestEntry, RequestInfo, CapabilityLoadState, MessageToWebview } from '../types';
 import JsonViewer from './JsonViewer';
 
 interface Props {
   serverId: string;
   prompts: McpPrompt[];
+  loadState: CapabilityLoadState;
   requests: Record<string, RequestEntry>;
   isConnected: boolean;
   onStartRequest: (id: string, info: RequestInfo) => void;
@@ -13,28 +14,129 @@ interface Props {
 
 let reqCounter = 0;
 function nextReqId() { return `prompt-${Date.now()}-${++reqCounter}`; }
+let completionReqCounter = 0;
+function nextCompletionReqId() { return `prompt-complete-${Date.now()}-${++completionReqCounter}`; }
+function promptArgFieldId(name: string) {
+  return `prompt-arg-${name.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+}
 
-export default function PromptsPanel({ serverId, prompts, requests, isConnected, onStartRequest }: Props) {
+function normalizePromptArgs(argValues: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(argValues).filter(([, value]) => value.trim() !== ''),
+  );
+}
+
+function getVisibleCompletionValues(values: string[] | undefined, currentValue: string): string[] {
+  if (!values || values.length === 0) {
+    return [];
+  }
+
+  return values.filter(value => value !== currentValue);
+}
+
+export default function PromptsPanel({ serverId, prompts, loadState, requests, isConnected, onStartRequest }: Props) {
   const [selected, setSelected] = useState<McpPrompt | null>(null);
   const [argValues, setArgValues] = useState<Record<string, string>>({});
   const [lastReqId, setLastReqId] = useState<string | null>(null);
+  const [completionValues, setCompletionValues] = useState<Record<string, string[]>>({});
+  const latestCompletionReqByArg = useRef<Record<string, string>>({});
+  const completionTimeouts = useRef<Record<string, number>>({});
+
+  useEffect(() => {
+    const handler = (event: MessageEvent<MessageToWebview>) => {
+      const msg = event.data;
+      if (msg.type !== 'promptArgumentCompletion') return;
+
+      const latestRequestId = latestCompletionReqByArg.current[msg.argumentName];
+      if (!latestRequestId || latestRequestId !== msg.requestId) return;
+
+      setCompletionValues(prev => ({ ...prev, [msg.argumentName]: msg.values }));
+    };
+
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
+  useEffect(() => () => {
+    Object.values(completionTimeouts.current).forEach(timeoutId => window.clearTimeout(timeoutId));
+  }, []);
+
+  const resetCompletions = () => {
+    Object.values(completionTimeouts.current).forEach(timeoutId => window.clearTimeout(timeoutId));
+    completionTimeouts.current = {};
+    latestCompletionReqByArg.current = {};
+    setCompletionValues({});
+  };
+
+  const clearCompletionForArgument = (argumentName: string) => {
+    const pendingTimeoutId = completionTimeouts.current[argumentName];
+    if (pendingTimeoutId !== undefined) {
+      window.clearTimeout(pendingTimeoutId);
+      delete completionTimeouts.current[argumentName];
+    }
+
+    delete latestCompletionReqByArg.current[argumentName];
+    setCompletionValues(prev => ({ ...prev, [argumentName]: [] }));
+  };
+
+  const requestCompletion = (promptName: string, argumentName: string, value: string, nextArgValues: Record<string, string>) => {
+    if (!isConnected || loadState !== 'loaded') {
+      clearCompletionForArgument(argumentName);
+      return;
+    }
+
+    const pendingTimeoutId = completionTimeouts.current[argumentName];
+    if (pendingTimeoutId !== undefined) {
+      window.clearTimeout(pendingTimeoutId);
+    }
+
+    completionTimeouts.current[argumentName] = window.setTimeout(() => {
+      const requestId = nextCompletionReqId();
+      latestCompletionReqByArg.current[argumentName] = requestId;
+
+      const contextArgs = normalizePromptArgs(nextArgValues);
+      delete contextArgs[argumentName];
+
+      postMessage({
+        type: 'completePromptArgument',
+        serverId,
+        promptName,
+        argumentName,
+        value,
+        contextArgs,
+        requestId,
+      });
+    }, 180);
+  };
+
+  useEffect(() => {
+    if (!selected) return;
+    if (prompts.some(prompt => prompt.name === selected.name)) return;
+
+    setSelected(null);
+    setArgValues({});
+    setLastReqId(null);
+    resetCompletions();
+  }, [prompts, selected]);
 
   const handleSelect = (prompt: McpPrompt) => {
     setSelected(prompt);
     setArgValues({});
     setLastReqId(null);
+    resetCompletions();
   };
 
   const handleGet = () => {
     if (!selected) return;
+    const args = normalizePromptArgs(argValues);
     const reqId = nextReqId();
     setLastReqId(reqId);
-    onStartRequest(reqId, { type: 'prompt', name: selected.name, args: argValues });
+    onStartRequest(reqId, { type: 'prompt', name: selected.name, args });
     postMessage({
       type: 'getPrompt',
       serverId,
       promptName: selected.name,
-      args: argValues,
+      args,
       requestId: reqId,
     });
   };
@@ -46,8 +148,16 @@ export default function PromptsPanel({ serverId, prompts, requests, isConnected,
       {/* List */}
       <div className="panel-list scroll-list">
         {prompts.length === 0 ? (
-          <div className="empty-state" style={{ height: 'auto', padding: '16px 12px' }}>
-            <p>{isConnected ? 'No prompts available.' : 'Connect to load prompts.'}</p>
+          <div className="empty-state empty-state-compact">
+            <p>
+              {loadState === 'loading'
+                ? 'Loading prompts…'
+                : loadState === 'error'
+                  ? 'Failed to load prompts.'
+                  : isConnected
+                    ? 'No prompts available.'
+                    : 'Connect to load prompts.'}
+            </p>
           </div>
         ) : prompts.map(p => (
           <div
@@ -73,24 +183,61 @@ export default function PromptsPanel({ serverId, prompts, requests, isConnected,
                 <div className="section-title">Arguments</div>
                 {selected.arguments.map(arg => (
                   <div key={arg.name} className="form-group">
-                    <label className="form-label">
+                    {(() => {
+                      const currentValue = argValues[arg.name] ?? '';
+                      const visibleCompletionValues = getVisibleCompletionValues(completionValues[arg.name], currentValue);
+
+                      return (
+                        <>
+                    <label className="form-label" htmlFor={promptArgFieldId(arg.name)}>
                       {arg.name}
                       {arg.required && <span className="req">*</span>}
                     </label>
                     <input
+                      id={promptArgFieldId(arg.name)}
                       className="form-input"
-                      value={argValues[arg.name] ?? ''}
-                      onChange={e => setArgValues(prev => ({ ...prev, [arg.name]: e.target.value }))}
+                      list={visibleCompletionValues.length ? `${promptArgFieldId(arg.name)}-list` : undefined}
+                      value={currentValue}
+                      onChange={e => {
+                        const nextValue = e.target.value;
+                        let nextState: Record<string, string>;
+
+                        if (nextValue !== '') {
+                          nextState = { ...argValues, [arg.name]: nextValue };
+                        } else {
+                          const { [arg.name]: _removed, ...rest } = argValues;
+                          nextState = rest;
+                        }
+
+                        setArgValues(nextState);
+                        requestCompletion(selected.name, arg.name, nextValue, nextState);
+                      }}
+                      onFocus={() => {
+                        if (currentValue.trim() === '' && visibleCompletionValues.length === 0) {
+                          requestCompletion(selected.name, arg.name, '', argValues);
+                        }
+                      }}
                       placeholder={arg.description ?? ''}
+                      title={arg.name}
                     />
+                    {visibleCompletionValues.length ? (
+                      <datalist id={`${promptArgFieldId(arg.name)}-list`}>
+                        {visibleCompletionValues.map(value => (
+                          <option key={value} value={value} />
+                        ))}
+                      </datalist>
+                    ) : null}
                     {arg.description && <div className="form-hint">{arg.description}</div>}
+                        </>
+                      );
+                    })()}
                   </div>
                 ))}
               </>
             )}
 
             {(!selected.arguments || selected.arguments.length === 0) && (
-              <p style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground)', marginBottom: 12 }}>
+              <p className="form-note">
                 No arguments required.
               </p>
             )}

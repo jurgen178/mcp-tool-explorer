@@ -159,6 +159,10 @@ export class McpClientManager {
   }
 
   async listTools(serverId: string): Promise<McpTool[]> {
+    if (!this._supportsCapability(serverId, 'tools')) {
+      this._log('info', 'Tools not supported by this server.');
+      return [];
+    }
     const { tools } = await this._client(serverId).listTools();
     return tools as McpTool[];
   }
@@ -168,6 +172,10 @@ export class McpClientManager {
   }
 
   async listResources(serverId: string): Promise<McpResource[]> {
+    if (!this._supportsCapability(serverId, 'resources')) {
+      this._log('info', 'Resources not supported by this server.');
+      return [];
+    }
     const { resources } = await this._client(serverId).listResources();
     return resources as McpResource[];
   }
@@ -177,8 +185,32 @@ export class McpClientManager {
   }
 
   async listPrompts(serverId: string): Promise<McpPrompt[]> {
+    if (!this._supportsCapability(serverId, 'prompts')) {
+      this._log('info', 'Prompts not supported by this server.');
+      return [];
+    }
     const { prompts } = await this._client(serverId).listPrompts();
     return prompts as McpPrompt[];
+  }
+
+  async completePromptArgument(
+    serverId: string,
+    promptName: string,
+    argumentName: string,
+    value: string,
+    contextArgs: Record<string, string>,
+  ): Promise<string[]> {
+    if (!this._supportsCapability(serverId, 'completions')) {
+      return [];
+    }
+
+    const result = await this._client(serverId).complete({
+      ref: { type: 'ref/prompt', name: promptName },
+      argument: { name: argumentName, value },
+      context: Object.keys(contextArgs).length > 0 ? { arguments: contextArgs } : undefined,
+    });
+
+    return result.completion.values;
   }
 
   async getPrompt(serverId: string, name: string, args: Record<string, string>) {
@@ -198,6 +230,12 @@ export class McpClientManager {
     const conn = this._connections.get(serverId);
     if (!conn) throw new Error(`Not connected to server "${serverId}". Connect first.`);
     return conn.client;
+  }
+
+  private _supportsCapability(serverId: string, capability: 'tools' | 'resources' | 'prompts' | 'completions'): boolean {
+    const capabilities = this._client(serverId).getServerCapabilities();
+    if (!capabilities) return true;
+    return capabilities[capability] !== undefined;
   }
 
   private _createTransport(config: McpServerConfig) {

@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { postMessage } from '../vscode';
-import type { McpResource, RequestEntry, RequestInfo } from '../types';
+import type { McpResource, RequestEntry, RequestInfo, CapabilityLoadState } from '../types';
 import JsonViewer from './JsonViewer';
 
 interface Props {
   serverId: string;
   resources: McpResource[];
+  loadState: CapabilityLoadState;
   requests: Record<string, RequestEntry>;
   isConnected: boolean;
   onStartRequest: (id: string, info: RequestInfo) => void;
@@ -14,9 +15,17 @@ interface Props {
 let reqCounter = 0;
 function nextReqId() { return `res-${Date.now()}-${++reqCounter}`; }
 
-export default function ResourcesPanel({ serverId, resources, requests, isConnected, onStartRequest }: Props) {
+export default function ResourcesPanel({ serverId, resources, loadState, requests, isConnected, onStartRequest }: Props) {
   const [selected, setSelected] = useState<McpResource | null>(null);
   const [lastReqId, setLastReqId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selected) return;
+    if (resources.some(resource => resource.uri === selected.uri)) return;
+
+    setSelected(null);
+    setLastReqId(null);
+  }, [resources, selected]);
 
   const handleRead = () => {
     if (!selected) return;
@@ -33,8 +42,16 @@ export default function ResourcesPanel({ serverId, resources, requests, isConnec
       {/* List */}
       <div className="panel-list scroll-list">
         {resources.length === 0 ? (
-          <div className="empty-state" style={{ height: 'auto', padding: '16px 12px' }}>
-            <p>{isConnected ? 'No resources available.' : 'Connect to load resources.'}</p>
+          <div className="empty-state empty-state-compact">
+            <p>
+              {loadState === 'loading'
+                ? 'Loading resources…'
+                : loadState === 'error'
+                  ? 'Failed to load resources.'
+                  : isConnected
+                    ? 'No resources available.'
+                    : 'Connect to load resources.'}
+            </p>
           </div>
         ) : resources.map(r => (
           <div
@@ -57,13 +74,13 @@ export default function ResourcesPanel({ serverId, resources, requests, isConnec
             {selected.description && <div className="detail-desc">{selected.description}</div>}
 
             <div className="form-group">
-              <label className="form-label">URI</label>
-              <input className="form-input" readOnly value={selected.uri} />
+              <label className="form-label" htmlFor="resource-uri">URI</label>
+              <input id="resource-uri" className="form-input form-input-readonly" readOnly value={selected.uri} title="Resource URI" />
             </div>
             {selected.mimeType && (
               <div className="form-group">
-                <label className="form-label">MIME Type</label>
-                <input className="form-input" readOnly value={selected.mimeType} />
+                <label className="form-label" htmlFor="resource-mime-type">MIME Type</label>
+                <input id="resource-mime-type" className="form-input form-input-readonly" readOnly value={selected.mimeType} title="Resource MIME type" />
               </div>
             )}
 

@@ -1,16 +1,16 @@
 import { useState, useEffect, useMemo } from 'react';
 import { postMessage } from '../vscode';
-import type { McpTool, SchemaProperty, InputSchema, RequestEntry, RequestInfo, HistoryEntry } from '../types';
+import type { McpTool, SchemaProperty, InputSchema, RequestEntry, RequestInfo, HistoryEntry, CapabilityLoadState } from '../types';
 import JsonViewer from './JsonViewer';
 import { interpretResult, type ResultInterpretation, type ImageItem } from '../resultInterpreters';
 
 interface Props {
   serverId: string;
   tools: McpTool[];
+  loadState: CapabilityLoadState;
   history: HistoryEntry[];
   requests: Record<string, RequestEntry>;
   isConnected: boolean;
-  isConnecting: boolean;
   pendingRerun: { toolName: string; args: unknown } | null;
   onPendingRerunConsumed: () => void;
   onStartRequest: (id: string, info: RequestInfo) => void;
@@ -18,6 +18,9 @@ interface Props {
 
 let reqCounter = 0;
 function nextReqId() { return `tool-${Date.now()}-${++reqCounter}`; }
+function toFieldId(prefix: string, name: string) {
+  return `${prefix}-${name.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+}
 
 // ── Result tab renderer ───────────────────────────────────────────────────────
 
@@ -84,7 +87,7 @@ function validateJsonArgs(json: string, schema: InputSchema): { errors: string[]
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ToolsPanel({
-  serverId, tools, history, requests, isConnected, isConnecting,
+  serverId, tools, loadState, history, requests, isConnected,
   pendingRerun, onPendingRerunConsumed, onStartRequest,
 }: Props) {
   const [selectedTool, setSelectedTool] = useState<McpTool | null>(null);
@@ -179,8 +182,16 @@ export default function ToolsPanel({
       {/* List */}
       <div className="panel-list scroll-list">
         {tools.length === 0 ? (
-          <div className="empty-state" style={{ height: 'auto', padding: '16px 12px' }}>
-            <p>{isConnecting ? 'Loading tools…' : isConnected ? 'No tools available.' : 'Connect to load tools.'}</p>
+          <div className="empty-state empty-state-compact">
+            <p>
+              {loadState === 'loading'
+                ? 'Loading tools…'
+                : loadState === 'error'
+                  ? 'Failed to load tools.'
+                  : isConnected
+                    ? 'No tools available.'
+                    : 'Connect to load tools.'}
+            </p>
           </div>
         ) : tools.map(tool => (
           <div
@@ -201,11 +212,10 @@ export default function ToolsPanel({
             <div className="detail-title">{selectedTool.name}</div>
             {selectedTool.description && <div className="detail-desc">{selectedTool.description}</div>}
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-              <span className="section-title" style={{ margin: 0 }}>Input</span>
+            <div className="tool-panel-input-header">
+              <span className="section-title tool-panel-input-title">Input</span>
               <button
-                style={{ fontSize: 11, padding: '1px 8px', marginLeft: 'auto' }}
-                className="btn btn-secondary"
+                className="btn btn-secondary tool-panel-mode-toggle"
                 onClick={() => setUseJson(v => !v)}
               >
                 {useJson ? 'Form view' : 'JSON view'}
@@ -214,12 +224,14 @@ export default function ToolsPanel({
 
             {useJson ? (
               <div className="form-group">
-                <label className="form-label">Arguments (JSON)</label>
+                <label className="form-label" htmlFor={`tool-json-args-${serverId}`}>Arguments (JSON)</label>
                 <textarea
+                  id={`tool-json-args-${serverId}`}
                   className="form-textarea"
                   value={jsonArgs}
                   onChange={e => setJsonArgs(e.target.value)}
                   rows={8}
+                  title="Arguments as JSON"
                 />
                 {validation && (validation.errors.length > 0 || validation.warnings.length > 0) && (
                   <div className="validation-hints">
@@ -282,7 +294,7 @@ export default function ToolsPanel({
                   return (
                     <div key={entry.id}>
                       <div className="prev-call-item">
-                        <span style={{ color: isErr ? 'var(--vscode-charts-red,#f44747)' : 'var(--vscode-charts-green,#4ec9b0)', fontWeight: 700 }}>
+                        <span className={`prev-call-status${isErr ? ' is-error' : ' is-ok'}`}>
                           {isErr ? '✗' : '✓'}
                         </span>
                         <button className="prev-call-expand" onClick={() => setExpandedPrev(exp ? null : entry.id)}>
@@ -290,17 +302,16 @@ export default function ToolsPanel({
                           {entry.durationMs !== undefined && ` · ${entry.durationMs}ms`}
                         </button>
                         <button
-                          className="btn btn-secondary"
-                          style={{ fontSize: 10, padding: '1px 7px', flexShrink: 0 }}
+                          className="btn btn-secondary prev-call-rerun"
                           disabled={!isConnected}
                           title="Re-run with same arguments"
                           onClick={() => handleRun(entry.args as Record<string, unknown>)}
                         >↩ Re-run</button>
                       </div>
                       {exp && (
-                        <div style={{ marginBottom: 8 }}>
+                        <div className="prev-call-body">
                           {entry.args !== undefined && (
-                            <div style={{ marginBottom: 6 }}>
+                            <div className="prev-call-args">
                               <div className="section-title">Args</div>
                               <JsonViewer data={entry.args} />
                             </div>
@@ -356,7 +367,7 @@ function ToolForm({ tool, values, onChange }: ToolFormProps) {
   const props = tool.inputSchema?.properties ?? {};
   const required = tool.inputSchema?.required ?? [];
   if (Object.keys(props).length === 0) {
-    return <p style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground)', marginBottom: 12 }}>No parameters.</p>;
+    return <p className="form-note">No parameters.</p>;
   }
   const set = (key: string, val: string) => onChange(prev => ({ ...prev, [key]: val }));
   return (
@@ -371,12 +382,13 @@ function ToolForm({ tool, values, onChange }: ToolFormProps) {
 interface FieldInputProps { name: string; schema: SchemaProperty; isRequired: boolean; value: string; onChange: (v: string) => void; }
 
 function FieldInput({ name, schema, isRequired, value, onChange }: FieldInputProps) {
-  const label = <label className="form-label">{name}{isRequired && <span className="req">*</span>}</label>;
+  const fieldId = toFieldId('tool-field', name);
+  const label = <label className="form-label" htmlFor={fieldId}>{name}{isRequired && <span className="req">*</span>}</label>;
 
   if (schema.type === 'boolean') return (
     <div className="form-group">
       {label}
-      <select className="form-select" style={{ width: 'auto' }} value={value} onChange={e => onChange(e.target.value)}>
+      <select id={fieldId} className="form-select form-select-auto" value={value} onChange={e => onChange(e.target.value)} title={name}>
         <option value="">(unset)</option><option value="true">true</option><option value="false">false</option>
       </select>
       {schema.description && <div className="form-hint">{schema.description}</div>}
@@ -386,7 +398,7 @@ function FieldInput({ name, schema, isRequired, value, onChange }: FieldInputPro
   if (schema.enum) return (
     <div className="form-group">
       {label}
-      <select className="form-select" value={value} onChange={e => onChange(e.target.value)}>
+      <select id={fieldId} className="form-select" value={value} onChange={e => onChange(e.target.value)} title={name}>
         <option value="">(select)</option>
         {schema.enum.map((v, i) => <option key={i} value={String(v)}>{String(v)}</option>)}
       </select>
@@ -399,8 +411,8 @@ function FieldInput({ name, schema, isRequired, value, onChange }: FieldInputPro
     <div className="form-group">
       {label}
       {isMultiline
-        ? <textarea className="form-textarea" value={value} onChange={e => onChange(e.target.value)} placeholder={schema.type === 'array' ? '["item1","item2"]' : '{"key":"value"}'} rows={3} />
-        : <input className="form-input" type={schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text'} value={value} onChange={e => onChange(e.target.value)} placeholder={String(schema.default ?? '')} />
+        ? <textarea id={fieldId} className="form-textarea" value={value} onChange={e => onChange(e.target.value)} placeholder={schema.type === 'array' ? '["item1","item2"]' : '{"key":"value"}'} rows={3} title={name} />
+        : <input id={fieldId} className="form-input" type={schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text'} value={value} onChange={e => onChange(e.target.value)} placeholder={String(schema.default ?? '')} title={name} />
       }
       {schema.description && <div className="form-hint">{schema.description}</div>}
     </div>
