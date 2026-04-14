@@ -126,7 +126,13 @@ function reducer(state: AppState, action: Action): AppState {
       };
 
     case 'DISCONNECTED':
-      return { ...state, serverStatus: { ...state.serverStatus, [action.serverId]: 'disconnected' } };
+      return {
+        ...state,
+        serverStatus: { ...state.serverStatus, [action.serverId]: 'disconnected' },
+        tools: { ...state.tools, [action.serverId]: [] },
+        resources: { ...state.resources, [action.serverId]: [] },
+        prompts: { ...state.prompts, [action.serverId]: [] },
+      };
 
     case 'CONNECTION_ERROR':
       return {

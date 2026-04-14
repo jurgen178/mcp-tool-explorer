@@ -7,7 +7,7 @@
 		"McpSample.Server.http": {
 			"url": "http://localhost:3001/mcp"
 		},
-		"bitfabrik-mcp": {
+		"bitfabrik.mcp": {
 		"url": "https://bitfabrik.io/mcp"
 		},
 		"ado": {

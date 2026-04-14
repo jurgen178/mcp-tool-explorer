@@ -108,6 +108,20 @@ export default function ToolsPanel({
     onPendingRerunConsumed();
   }, [pendingRerun]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!selectedTool) return;
+    const stillExists = tools.some(tool => tool.name === selectedTool.name);
+    if (stillExists) return;
+
+    setSelectedTool(null);
+    setFormValues({});
+    setJsonArgs('{}');
+    setUseJson(false);
+    setLastReqId(null);
+    setExpandedPrev(null);
+    setActiveResultTab('raw');
+  }, [tools, selectedTool]);
+
   const handleSelectTool = (tool: McpTool) => {
     setSelectedTool(tool);
     setFormValues({});
