@@ -2,11 +2,11 @@
 
 A VS Code extension for inspecting and testing [Model Context Protocol (MCP)](https://modelcontextprotocol.io) servers, directly inside your editor.
 
-Connect to any MCP server, browse its capabilities, call tools with live input forms, read resources, and render prompts. All without leaving your editor.
+Connect to any MCP server, browse its capabilities, call tools with live input forms, read resources, render prompts, inspect notifications, and review connection traffic. All without leaving your editor.
 
 <br />
 
-![MCP Tool Explorer screenshot](https://github.com/jurgen178/mcp-tool-explorer/blob/main/mcp-tool-explorer.png?raw=true)
+![MCP Tool Explorer screenshot](https://github.com/jurgen178/mcp-tool-explorer/blob/main/doc/mcp-tool-explorer.png?raw=true)
 
 <br />
 
@@ -38,6 +38,7 @@ Connect to any MCP server, browse its capabilities, call tools with live input f
 - **Auto-discovery** — automatically finds servers defined in `.vscode/mcp.json` or the `mcp.servers` workspace setting
 - **Manual registration** — add any server on the fly via the Add Server dialog
 - **All three transports** — `stdio`, SSE, and Streamable HTTP
+- **Capability indicators** — connected servers show at a glance whether they currently expose tools, resources, and prompts
 
 ### Tools
 - Browse all tools exposed by a server with their descriptions and parameter schemas
@@ -49,14 +50,25 @@ Connect to any MCP server, browse its capabilities, call tools with live input f
 ### Resources
 - List all resources and read their contents
 - Results rendered with syntax highlighting
+- Resource list updates can be refreshed automatically when the server emits `notifications/resources/list_changed`
 
 ### Prompts
 - Browse and render prompts with argument input support
+- Prompt list updates can be refreshed automatically when the server emits `notifications/prompts/list_changed`
+
+### Notifications & Events
+- A dedicated **Events** tab shows incoming server notifications such as logging messages, progress updates, resource updates, and list-change notifications
+- Related notifications can be visually grouped when they originate from the same server-side activity
+- Streamable HTTP servers can surface server-initiated events, including out-of-band notifications over the standalone SSE stream
 
 ### Request History
 - A dedicated **History** tab records every tool call, resource read, and prompt render
 - See timestamp, duration, status (success / error), and expand to inspect the request arguments and response
 - Re-run any past tool call directly from the timeline
+
+### Connection Diagnostics
+- A dedicated **Log** tab records MCP transport activity for troubleshooting
+- For HTTP-based servers, request and response details are captured to help diagnose initialization, fallback, auth, and notification-delivery issues
 
 ### JSON Viewer
 - Syntax-highlighted JSON output (keys, strings, numbers, booleans, nulls each in distinct colours)
@@ -145,7 +157,9 @@ webview-ui/
       ToolsPanel.tsx        # Tools tab
       ResourcesPanel.tsx    # Resources tab
       PromptsPanel.tsx      # Prompts tab
+      EventsPanel.tsx       # Notifications and events tab
       HistoryPanel.tsx      # History timeline tab
+      ConnectionLogPanel.tsx # Transport and connection log tab
       JsonViewer.tsx        # Syntax-highlighted JSON renderer
       AddServerModal.tsx    # Add Server dialog
 ```
