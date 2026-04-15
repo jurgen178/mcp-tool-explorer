@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { postMessage } from '../vscode';
 import type { McpTool, SchemaProperty, InputSchema, RequestEntry, RequestInfo, HistoryEntry, CapabilityLoadState } from '../types';
 import JsonViewer from './JsonViewer';
-import { interpretResult, type ResultInterpretation, type ImageItem } from '../resultInterpreters';
+import ResultViewer from './ResultViewer';
 
 interface Props {
   serverId: string;
@@ -11,7 +11,7 @@ interface Props {
   history: HistoryEntry[];
   requests: Record<string, RequestEntry>;
   isConnected: boolean;
-  pendingRerun: { toolName: string; args: unknown } | null;
+  pendingRerun: { serverId: string | null; toolName: string; args: unknown } | null;
   onPendingRerunConsumed: () => void;
   onStartRequest: (id: string, info: RequestInfo) => void;
 }
@@ -20,37 +20,6 @@ let reqCounter = 0;
 function nextReqId() { return `tool-${Date.now()}-${++reqCounter}`; }
 function toFieldId(prefix: string, name: string) {
   return `${prefix}-${name.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
-}
-
-// ── Result tab renderer ───────────────────────────────────────────────────────
-
-function renderInterpretation(interp: ResultInterpretation) {
-  if (interp.id === 'text') {
-    return (
-      <div className="text-result-list">
-        {(interp.data as string[]).map((txt, idx) => (
-          <pre key={idx} className="text-result">{txt}</pre>
-        ))}
-      </div>
-    );
-  }
-  if (interp.id === 'image') {
-    return (
-      <div className="image-result-list">
-        {(interp.data as ImageItem[]).map((img, idx) => (
-          <img
-            key={idx}
-            src={`data:${img.mimeType};base64,${img.data}`}
-            alt={`Result image ${idx + 1}`}
-            className="image-result"
-          />
-        ))}
-      </div>
-    );
-  }
-  // The dedicated Raw tab is handled outside this renderer. Any remaining
-  // interpretation is structured data and should use the JSON viewer.
-  return <JsonViewer data={interp.data} />;
 }
 
 // ── JSON validation ───────────────────────────────────────────────────────────
@@ -94,22 +63,21 @@ export default function ToolsPanel({
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [jsonArgs, setJsonArgs] = useState('{}');
   const [useJson, setUseJson] = useState(false);
-  const [lastReqId, setLastReqId] = useState<string | null>(null);
+  const [lastReqIdByTool, setLastReqIdByTool] = useState<Record<string, string>>({});
   const [expandedPrev, setExpandedPrev] = useState<string | null>(null);
-  const [activeResultTab, setActiveResultTab] = useState<string>('raw');
 
   // Handle re-run signal from History tab
   useEffect(() => {
     if (!pendingRerun) return;
+    if (pendingRerun.serverId !== serverId) return;
     const tool = tools.find(t => t.name === pendingRerun.toolName);
     if (tool) {
       setSelectedTool(tool);
       setJsonArgs(JSON.stringify(pendingRerun.args ?? {}, null, 2));
       setUseJson(true);
-      setLastReqId(null);
     }
     onPendingRerunConsumed();
-  }, [pendingRerun]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [pendingRerun, serverId, tools, onPendingRerunConsumed]);
 
   useEffect(() => {
     if (!selectedTool) return;
@@ -120,16 +88,13 @@ export default function ToolsPanel({
     setFormValues({});
     setJsonArgs('{}');
     setUseJson(false);
-    setLastReqId(null);
     setExpandedPrev(null);
-    setActiveResultTab('raw');
   }, [tools, selectedTool]);
 
   const handleSelectTool = (tool: McpTool) => {
     setSelectedTool(tool);
     setFormValues({});
     setJsonArgs('{}');
-    setLastReqId(null);
     setExpandedPrev(null);
   };
 
@@ -149,26 +114,20 @@ export default function ToolsPanel({
       args = buildArgs(selectedTool, formValues);
     }
     const reqId = nextReqId();
-    setLastReqId(reqId);
+    setLastReqIdByTool(prev => ({ ...prev, [selectedTool.name]: reqId }));
     onStartRequest(reqId, { type: 'tool', name: selectedTool.name, args });
     postMessage({ type: 'callTool', serverId, toolName: selectedTool.name, args, requestId: reqId });
   };
 
+  const lastReqId = selectedTool ? (lastReqIdByTool[selectedTool.name] ?? null) : null;
   const result = lastReqId ? requests[lastReqId] : undefined;
+  const latestHistoryByTool = new Map<string, HistoryEntry>();
 
-  const interpretations = useMemo(
-    () => (result && result.status !== 'pending' ? interpretResult(result.data) : []),
-    [result]
-  );
-
-  // Prefer the first structured interpretation for new results, while still
-  // keeping Raw available as a manual fallback tab.
-  useEffect(() => {
-    if (result?.status === 'done' || result?.status === 'error') {
-      const interps = interpretResult(result.data);
-      setActiveResultTab(interps.length > 0 ? interps[0].id : 'raw');
+  for (const entry of history) {
+    if (!latestHistoryByTool.has(entry.name)) {
+      latestHistoryByTool.set(entry.name, entry);
     }
-  }, [lastReqId, result?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   const prevCalls = selectedTool
     ? history.filter(e => e.name === selectedTool.name && e.status !== 'pending').slice(0, 6)
@@ -199,7 +158,15 @@ export default function ToolsPanel({
             className={`list-item${selectedTool?.name === tool.name ? ' active' : ''}`}
             onClick={() => handleSelectTool(tool)}
           >
-            <div className="list-item-name">{tool.name}</div>
+            <div className="tool-list-item-header">
+              <div className="list-item-name">{tool.name}</div>
+              {latestHistoryByTool.get(tool.name)?.status === 'pending' && (
+                <span className="tool-list-running" title="Request is still running">
+                  <span className="spinner tool-list-running-spinner" />
+                  Running
+                </span>
+              )}
+            </div>
             {tool.description && <div className="list-item-sub">{tool.description}</div>}
           </div>
         ))}
@@ -258,28 +225,8 @@ export default function ToolsPanel({
                   <span className={`result-label${result.isError ? ' error' : ' ok'}`}>
                     {result.isError ? '✗ Error' : '✓ Result'}
                   </span>
-                  {interpretations.length > 0 && (
-                    <div className="result-tabs">
-                      <button
-                        className={`result-tab${activeResultTab === 'raw' ? ' active' : ''}`}
-                        onClick={() => setActiveResultTab('raw')}
-                      >Raw</button>
-                      {interpretations.map(interp => (
-                        <button
-                          key={interp.id}
-                          className={`result-tab${activeResultTab === interp.id ? ' active' : ''}`}
-                          onClick={() => setActiveResultTab(interp.id)}
-                        >{interp.label}</button>
-                      ))}
-                    </div>
-                  )}
                 </div>
-                {(() => {
-                  const interp = interpretations.find(i => i.id === activeResultTab);
-                  return activeResultTab === 'raw' || !interp
-                    ? <JsonViewer data={result.data} isError={result.isError} allowSmartView={false} />
-                    : renderInterpretation(interp);
-                })()}
+                <ResultViewer data={result.data} isError={result.isError} />
               </div>
             )}
 
@@ -319,7 +266,7 @@ export default function ToolsPanel({
                           {entry.result !== undefined && (
                             <div>
                               <div className="section-title">{isErr ? 'Error' : 'Result'}</div>
-                              <JsonViewer data={entry.result} isError={isErr} />
+                              <ResultViewer data={entry.result} isError={isErr} />
                             </div>
                           )}
                         </div>

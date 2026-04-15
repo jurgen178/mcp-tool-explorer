@@ -416,10 +416,10 @@ export default function App() {
     // History can rehydrate a previous tool invocation by redirecting back into
     // ToolsPanel with the original args preloaded into JSON mode.
     dispatch({ type: 'SELECT_TAB', tab: 'tools' });
-    setPendingRerun({ toolName, args });
+    setPendingRerun({ serverId: state.selectedServerId, toolName, args });
   };
 
-  const [pendingRerun, setPendingRerun] = React.useState<{ toolName: string; args: unknown } | null>(null);
+  const [pendingRerun, setPendingRerun] = React.useState<{ serverId: string | null; toolName: string; args: unknown } | null>(null);
 
   // ── Selected server data ─────────────────────────────────────────────────
 
@@ -514,6 +514,7 @@ export default function App() {
             {/* Tab content */}
             {state.activeTab === 'tools' && (
               <ToolsPanel
+                key={`tools-${selectedServer.id}`}
                 serverId={selectedServer.id}
                 tools={state.tools[selectedServer.id] ?? []}
                 loadState={state.capabilityLoadState.tools[selectedServer.id] ?? 'idle'}
@@ -527,6 +528,7 @@ export default function App() {
             )}
             {state.activeTab === 'resources' && (
               <ResourcesPanel
+                key={`resources-${selectedServer.id}`}
                 serverId={selectedServer.id}
                 resources={state.resources[selectedServer.id] ?? []}
                 loadState={state.capabilityLoadState.resources[selectedServer.id] ?? 'idle'}
@@ -537,6 +539,7 @@ export default function App() {
             )}
             {state.activeTab === 'prompts' && (
               <PromptsPanel
+                key={`prompts-${selectedServer.id}`}
                 serverId={selectedServer.id}
                 prompts={state.prompts[selectedServer.id] ?? []}
                 loadState={state.capabilityLoadState.prompts[selectedServer.id] ?? 'idle'}
@@ -547,6 +550,7 @@ export default function App() {
             )}
             {state.activeTab === 'history' && (
               <HistoryPanel
+                key={`history-${selectedServer.id}`}
                 history={state.history.filter(e => e.serverId === selectedServer.id)}
                 onClear={() => dispatch({ type: 'HISTORY_CLEAR', serverId: selectedServer.id })}
                 onRerun={(toolName, args) => handleRerun(toolName, args)}

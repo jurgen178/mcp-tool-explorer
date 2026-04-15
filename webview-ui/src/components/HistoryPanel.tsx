@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { HistoryEntry } from '../types';
 import JsonViewer from './JsonViewer';
+import ResultViewer from './ResultViewer';
 
 interface Props {
   history: HistoryEntry[];
@@ -27,7 +28,7 @@ export default function HistoryPanel({ history, onClear, onRerun }: Props) {
 
   if (history.length === 0) {
     return (
-      <div className="panel" style={{ flexDirection: 'column' }}>
+      <div className="panel history-panel history-panel-empty">
         <div className="empty-state">
           <p>No requests yet.</p>
           <p>Run a tool, read a resource, or get a prompt to see history here.</p>
@@ -37,21 +38,21 @@ export default function HistoryPanel({ history, onClear, onRerun }: Props) {
   }
 
   return (
-    <div className="panel" style={{ flexDirection: 'column', overflow: 'hidden' }}>
+    <div className="panel history-panel">
       <div className="history-toolbar">
-        <span className="section-title" style={{ margin: 0 }}>
+        <span className="section-title history-toolbar-title">
           {history.length} request{history.length !== 1 ? 's' : ''}
         </span>
         <button
           className="btn btn-secondary"
-          style={{ fontSize: 11, padding: '2px 10px' }}
+          id="history-clear-button"
           onClick={onClear}
         >
           Clear
         </button>
       </div>
 
-      <div className="scroll-list" style={{ flex: 1, overflowY: 'auto' }}>
+      <div className="scroll-list history-list">
         {history.map(entry => {
           const expanded = expandedId === entry.id;
           const isResultError = entry.isError || entry.status === 'error';
@@ -66,9 +67,9 @@ export default function HistoryPanel({ history, onClear, onRerun }: Props) {
                 <span className="history-name">{entry.name}</span>
 
                 {/* status */}
-                {entry.status === 'pending' && <span className="spinner" style={{ flexShrink: 0 }} />}
+                {entry.status === 'pending' && <span className="spinner history-spinner" />}
                 {entry.status !== 'pending' && (
-                  <span style={{ flexShrink: 0, fontWeight: 700, fontSize: 11, color: isResultError ? 'var(--vscode-charts-red, #f44747)' : 'var(--vscode-charts-green, #4ec9b0)' }}>
+                  <span className={`history-status ${isResultError ? 'is-error' : 'is-ok'}`}>
                     {isResultError ? '✗' : '✓'}
                   </span>
                 )}
@@ -84,36 +85,35 @@ export default function HistoryPanel({ history, onClear, onRerun }: Props) {
                 {/* re-run (tools only) */}
                 {entry.type === 'tool' && entry.status !== 'pending' && (
                   <button
-                    className="icon-btn"
-                    style={{ fontSize: 11, flexShrink: 0 }}
+                    className="icon-btn history-rerun-btn"
                     title="Re-run in Tools tab"
                     onClick={e => { e.stopPropagation(); onRerun(entry.name, entry.args); }}
                   >↩</button>
                 )}
 
-                <span style={{ fontSize: 9, color: 'var(--vscode-descriptionForeground)', flexShrink: 0 }}>
+                <span className="history-chevron">
                   {expanded ? '▲' : '▼'}
                 </span>
               </div>
 
               {expanded && (
-                <div className="history-item-body">
+                <div className="history-item-content">
                   {entry.args !== undefined && (
-                    <div style={{ marginBottom: 10 }}>
+                    <div className="history-request-block">
                       <div className="section-title">Request</div>
                       <JsonViewer data={entry.args} />
                     </div>
                   )}
                   {entry.result !== undefined && (
-                    <div>
-                      <div className="section-title" style={{ color: isResultError ? 'var(--vscode-charts-red, #f44747)' : undefined }}>
+                    <div className="history-response-block">
+                      <div className={`section-title${isResultError ? ' history-response-title-error' : ''}`}>
                         {isResultError ? 'Error' : 'Response'}
                       </div>
-                      <JsonViewer data={entry.result} isError={isResultError} />
+                      <ResultViewer data={entry.result} isError={isResultError} />
                     </div>
                   )}
                   {entry.status === 'pending' && (
-                    <p style={{ fontSize: 12, color: 'var(--vscode-descriptionForeground)' }}>
+                    <p className="history-pending-text">
                       Waiting for response…
                     </p>
                   )}
