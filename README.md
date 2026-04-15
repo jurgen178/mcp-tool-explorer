@@ -84,7 +84,7 @@ Install from the VS Code Marketplace, or build from source (see [Building](#buil
 
 ### Test Server
 
-If you want to try the extension against a ready-made MCP server, see [mcp-test-server](https://github.com/jurgen178/mcp-test-server). It is useful for quickly validating tool calls, resources, and prompts while testing the explorer.
+If you want to try the extension against a ready-made MCP server, see [mcp-test-server](https://github.com/jurgen178/mcp-test-server). It is useful for quickly validating tool calls, resources, and prompts while testing the explorer. A publicly reachable test endpoint is also available at [https://bitfabrik.io/mcp](https://bitfabrik.io/mcp).
 
 ### Opening the Explorer
 
