@@ -50,30 +50,30 @@ export function createLoggingFetch(
       let bodyExcerpt = '';
       let responseBody = '';
       const contentType = response.headers.get('content-type') ?? '';
+
+      if (contentType.includes('text/event-stream')) {
+        onLog({
+          timestamp: start, method, url, rpcMethod, requestHeaders: reqHeaders,
+          requestBody, status: response.status, statusText: response.statusText,
+          responseHeaders: resHeaders,
+          responseBody: '[streaming SSE response]',
+          bodyExcerpt: '',
+          error: null,
+          durationMs: Date.now() - start,
+        });
+        return response;
+      }
+
       try {
         const c = response.clone();
         const t = await c.text();
         if (!response.ok) {
           bodyExcerpt = t.length > 500 ? t.substring(0, 500) + '…' : t;
         }
-        if (contentType.includes('text/event-stream')) {
-          // Extract all data: lines from SSE, parse each as JSON and collect
-          const dataLines = t.split('\n')
-            .filter(line => line.startsWith('data:'))
-            .map(line => line.slice(5).trim())
-            .filter(Boolean);
-          if (dataLines.length === 1) {
-            try { responseBody = JSON.stringify(JSON.parse(dataLines[0]), null, 2); } catch { responseBody = dataLines[0]; }
-          } else if (dataLines.length > 1) {
-            const parsed = dataLines.map(d => { try { return JSON.parse(d); } catch { return d; } });
-            responseBody = JSON.stringify(parsed, null, 2);
-          }
-        } else {
-          try {
-            responseBody = JSON.stringify(JSON.parse(t), null, 2);
-          } catch {
-            responseBody = t.length > 2000 ? t.substring(0, 2000) + '…' : t;
-          }
+        try {
+          responseBody = JSON.stringify(JSON.parse(t), null, 2);
+        } catch {
+          responseBody = t.length > 2000 ? t.substring(0, 2000) + '…' : t;
         }
       } catch { /* */ }
 

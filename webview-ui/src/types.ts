@@ -74,6 +74,7 @@ export interface McpEventEntry {
   method: string;
   title: string;
   level: 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency';
+  groupKey?: string;
   logger?: string;
   data?: unknown;
 }

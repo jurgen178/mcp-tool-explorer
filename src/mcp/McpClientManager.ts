@@ -4,8 +4,8 @@ import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import {
   LoggingMessageNotificationSchema,
-  ProgressNotificationSchema,
   PromptListChangedNotificationSchema,
+  ResourceUpdatedNotificationSchema,
   ResourceListChangedNotificationSchema,
   ToolListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
@@ -30,6 +30,11 @@ interface ActiveConnection {
   config: McpServerConfig;
 }
 
+interface RecentEventGroup {
+  key: string;
+  timestamp: number;
+}
+
 export class McpClientManager {
   private readonly _connections = new Map<string, ActiveConnection>();
   private readonly _version: string;
@@ -37,6 +42,8 @@ export class McpClientManager {
   private _onLog: ((entry: ConnectionLogEntry) => void) | undefined;
   private _onEvent: ((serverId: string, event: McpEventEntry) => void) | undefined;
   private _eventCounter = 0;
+  private readonly _recentEventGroups = new Map<string, RecentEventGroup>();
+  private readonly _urlCtor = (globalThis as unknown as { URL: new (input: string) => { pathname: string } & object }).URL;
 
   constructor(version: string) {
     this._version = version;
@@ -63,6 +70,48 @@ export class McpClientManager {
     });
   }
 
+  private _asRecord(value: unknown): Record<string, unknown> | undefined {
+    return typeof value === 'object' && value !== null ? value as Record<string, unknown> : undefined;
+  }
+
+  private _rememberEventGroup(serverId: string, key: string): string {
+    this._recentEventGroups.set(serverId, { key, timestamp: Date.now() });
+    return key;
+  }
+
+  private _getRecentEventGroup(serverId: string, maxAgeMs = 600): string | undefined {
+    const recent = this._recentEventGroups.get(serverId);
+    if (!recent) {
+      return undefined;
+    }
+
+    if (Date.now() - recent.timestamp > maxAgeMs) {
+      this._recentEventGroups.delete(serverId);
+      return undefined;
+    }
+
+    return recent.key;
+  }
+
+  private _buildLoggingGroupKey(serverId: string, logger: string | undefined, data: unknown): string | undefined {
+    const dataRecord = this._asRecord(data);
+    const eventName = typeof dataRecord?.event === 'string' ? dataRecord.event : undefined;
+
+    if (eventName) {
+      return this._rememberEventGroup(serverId, `event:${eventName}:${logger ?? 'default'}`);
+    }
+
+    if (logger) {
+      return this._rememberEventGroup(serverId, `logger:${logger}`);
+    }
+
+    return undefined;
+  }
+
+  private _buildResourceGroupKey(serverId: string, uri: string): string {
+    return this._getRecentEventGroup(serverId) ?? this._rememberEventGroup(serverId, `resource:${uri}`);
+  }
+
   private _registerNotificationHandlers(client: Client, serverId: string): void {
     client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
       const logger = notification.params.logger;
@@ -71,22 +120,9 @@ export class McpClientManager {
         method: notification.method,
         title: `${prefix}${notification.params.level}`,
         level: notification.params.level,
+        groupKey: this._buildLoggingGroupKey(serverId, logger, notification.params.data),
         logger,
         data: notification.params.data,
-      });
-    });
-
-    client.setNotificationHandler(ProgressNotificationSchema, notification => {
-      const total = notification.params.total;
-      const message = notification.params.message;
-      const progressText = total !== undefined
-        ? `${notification.params.progress}/${total}`
-        : `${notification.params.progress}`;
-      this._emitEvent(serverId, {
-        method: notification.method,
-        title: message ? `${message} (${progressText})` : `Progress ${progressText}`,
-        level: 'info',
-        data: notification.params,
       });
     });
 
@@ -116,6 +152,38 @@ export class McpClientManager {
         data: notification.params,
       });
     });
+
+    client.setNotificationHandler(ResourceUpdatedNotificationSchema, notification => {
+      this._emitEvent(serverId, {
+        method: notification.method,
+        title: `Resource updated: ${notification.params.uri}`,
+        level: 'notice',
+        groupKey: this._buildResourceGroupKey(serverId, notification.params.uri),
+        data: notification.params,
+      });
+    });
+  }
+
+  private _buildProgressOptions(serverId: string, operationLabel: string) {
+    return {
+      resetTimeoutOnProgress: true,
+      onprogress: (progress: {
+        progress: number;
+        total?: number;
+        message?: string;
+      }) => {
+        const progressText = progress.total !== undefined
+          ? `${progress.progress}/${progress.total}`
+          : `${progress.progress}`;
+
+        this._emitEvent(serverId, {
+          method: 'notifications/progress',
+          title: progress.message ? `${progress.message} (${progressText})` : `${operationLabel} progress ${progressText}`,
+          level: 'info',
+          data: progress,
+        });
+      },
+    };
   }
 
   private async _measure<T>(label: string, operation: () => Promise<T>): Promise<T> {
@@ -161,7 +229,7 @@ export class McpClientManager {
     }
 
     const rpcLabel = entry.rpcMethod ? ` (${entry.rpcMethod})` : '';
-    this._log(level, `HTTP ${entry.method} ${new URL(entry.url).pathname}${rpcLabel}  →  ${statusStr}`, sections.length > 0 ? sections : undefined);
+    this._log(level, `HTTP ${entry.method} ${new this._urlCtor(entry.url).pathname}${rpcLabel}  →  ${statusStr}`, sections.length > 0 ? sections : undefined);
   }
 
   isConnected(serverId: string): boolean {
@@ -183,7 +251,7 @@ export class McpClientManager {
 
     const client = new Client(
       { name: 'mcp-tool-explorer', version: this._version },
-      { capabilities: { tools: {}, resources: {}, prompts: {}, logging: {} } },
+      { capabilities: { logging: {} } as Record<string, unknown> },
     );
 
     this._registerNotificationHandlers(client, config.id);
@@ -194,7 +262,7 @@ export class McpClientManager {
     let stderrOutput = '';
     if (config.type === 'stdio') {
       const stdioTransport = transport as StdioClientTransport;
-      stdioTransport.stderr?.on('data', (chunk: Buffer) => {
+      stdioTransport.stderr?.on('data', (chunk: { toString(): string }) => {
         const line = chunk.toString();
         stderrOutput += line;
         this._log('warn', 'Server stderr', line.trim());
@@ -217,7 +285,7 @@ export class McpClientManager {
         this._log('info', 'Falling back to SSE transport…');
         const sseClient = new Client(
           { name: 'mcp-tool-explorer', version: this._version },
-          { capabilities: { tools: {}, resources: {}, prompts: {} } },
+          { capabilities: { logging: {} } as Record<string, unknown> },
         );
         const sseTransport = this._createTransport({ ...config, type: 'sse' });
         try {
@@ -270,7 +338,11 @@ export class McpClientManager {
   }
 
   async callTool(serverId: string, name: string, args: Record<string, unknown>) {
-    return this._client(serverId).callTool({ name, arguments: args });
+    return this._client(serverId).callTool(
+      { name, arguments: args },
+      undefined,
+      this._buildProgressOptions(serverId, name),
+    );
   }
 
   async listResources(serverId: string): Promise<McpResource[]> {
@@ -283,7 +355,10 @@ export class McpClientManager {
   }
 
   async readResource(serverId: string, uri: string) {
-    return this._client(serverId).readResource({ uri });
+    return this._client(serverId).readResource(
+      { uri },
+      this._buildProgressOptions(serverId, 'readResource'),
+    );
   }
 
   async listPrompts(serverId: string): Promise<McpPrompt[]> {
@@ -316,7 +391,10 @@ export class McpClientManager {
   }
 
   async getPrompt(serverId: string, name: string, args: Record<string, string>) {
-    return this._client(serverId).getPrompt({ name, arguments: args });
+    return this._client(serverId).getPrompt(
+      { name, arguments: args },
+      this._buildProgressOptions(serverId, name),
+    );
   }
 
   getServerDetails(serverId: string): McpServerDetails {
@@ -375,8 +453,8 @@ export class McpClientManager {
     }
 
     if (!config.url) throw new Error(`Server "${config.name}" is missing a URL.`);
-    const url = new URL(config.url);
-    const requestInit: RequestInit | undefined = config.headers
+    const url = new this._urlCtor(config.url);
+    const requestInit = config.headers
       ? { headers: config.headers }
       : undefined;
 
