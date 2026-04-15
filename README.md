@@ -82,6 +82,10 @@ Connect to any MCP server, browse its capabilities, call tools with live input f
 
 Install from the VS Code Marketplace, or build from source (see [Building](#building)).
 
+### Test Server
+
+If you want to try the extension against a ready-made MCP server, see [mcp-test-server](https://github.com/jurgen178/mcp-test-server). It is useful for quickly validating tool calls, resources, and prompts while testing the explorer.
+
 ### Opening the Explorer
 
 - Run **`MCP: Open MCP Tool Explorer`** from the Command Palette (`Ctrl+Shift+P`)
