@@ -98,9 +98,18 @@ export class McpToolExplorerPanel {
         this._clientManager.setLogListener((log) => {
           this._post({ type: 'connectionLog', serverId: message.serverId, log });
         });
+        this._clientManager.setEventListener((serverId, event) => {
+          this._post({ type: 'serverEvent', serverId, event });
+          void this._handleServerEvent(serverId, event.method);
+        });
         try {
           await this._clientManager.connect(config);
           this._post({ type: 'connected', serverId: message.serverId });
+          this._post({
+            type: 'serverDetailsLoaded',
+            serverId: message.serverId,
+            details: this._clientManager.getServerDetails(message.serverId),
+          });
           await this._loadCapabilities(message.serverId);
         } catch (e: unknown) {
           const error = e instanceof Error ? e.message : String(e);
@@ -231,6 +240,38 @@ export class McpToolExplorerPanel {
         this._post({ type: 'promptsListed', serverId, prompts });
       }),
     ]);
+  }
+
+  private async _handleServerEvent(serverId: string, method: string): Promise<void> {
+    switch (method) {
+      case 'notifications/tools/list_changed': {
+        try {
+          const tools = await this._clientManager.listTools(serverId);
+          this._post({ type: 'toolsListed', serverId, tools });
+        } catch {
+          // Best-effort refresh only.
+        }
+        break;
+      }
+      case 'notifications/resources/list_changed': {
+        try {
+          const resources = await this._clientManager.listResources(serverId);
+          this._post({ type: 'resourcesListed', serverId, resources });
+        } catch {
+          // Best-effort refresh only.
+        }
+        break;
+      }
+      case 'notifications/prompts/list_changed': {
+        try {
+          const prompts = await this._clientManager.listPrompts(serverId);
+          this._post({ type: 'promptsListed', serverId, prompts });
+        } catch {
+          // Best-effort refresh only.
+        }
+        break;
+      }
+    }
   }
 
   private _post(message: MessageToWebview): void {

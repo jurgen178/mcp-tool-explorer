@@ -54,6 +54,30 @@ export interface McpPrompt {
   }>;
 }
 
+export interface McpImplementationInfo {
+  name: string;
+  version: string;
+  title?: string;
+  description?: string;
+  websiteUrl?: string;
+}
+
+export interface McpServerDetails {
+  serverInfo?: McpImplementationInfo;
+  instructions?: string;
+  capabilities?: Record<string, unknown>;
+}
+
+export interface McpEventEntry {
+  id: string;
+  timestamp: number;
+  method: string;
+  title: string;
+  level: 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency';
+  logger?: string;
+  data?: unknown;
+}
+
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 export type CapabilityKind = 'tools' | 'resources' | 'prompts';
 export type CapabilityLoadState = 'idle' | 'loading' | 'loaded' | 'error';
@@ -104,6 +128,8 @@ export type MessageToWebview =
   | { type: 'serverAdded'; server: McpServerConfig }
   | { type: 'serverRemoved'; serverId: string }
   | { type: 'connected'; serverId: string }
+  | { type: 'serverDetailsLoaded'; serverId: string; details: McpServerDetails }
+  | { type: 'serverEvent'; serverId: string; event: McpEventEntry }
   | { type: 'disconnected'; serverId: string }
   | { type: 'connectionError'; serverId: string; error: string }
   | { type: 'capabilityLoadFailed'; serverId: string; capability: CapabilityKind; error: string }

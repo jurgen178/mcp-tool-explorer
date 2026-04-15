@@ -2,7 +2,14 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { McpServerConfig, McpTool, McpResource, McpPrompt } from '../types';
+import {
+  LoggingMessageNotificationSchema,
+  ProgressNotificationSchema,
+  PromptListChangedNotificationSchema,
+  ResourceListChangedNotificationSchema,
+  ToolListChangedNotificationSchema,
+} from '@modelcontextprotocol/sdk/types.js';
+import type { McpEventEntry, McpServerConfig, McpServerDetails, McpTool, McpResource, McpPrompt } from '../types';
 import { createOAuthHandler } from './McpOAuth';
 import { createLoggingFetch, type FetchLogEntry } from './LoggingFetch';
 
@@ -28,6 +35,8 @@ export class McpClientManager {
   private readonly _version: string;
   /** Callback to emit log entries to the panel during connect. */
   private _onLog: ((entry: ConnectionLogEntry) => void) | undefined;
+  private _onEvent: ((serverId: string, event: McpEventEntry) => void) | undefined;
+  private _eventCounter = 0;
 
   constructor(version: string) {
     this._version = version;
@@ -38,8 +47,75 @@ export class McpClientManager {
     this._onLog = listener;
   }
 
+  setEventListener(listener: (serverId: string, event: McpEventEntry) => void): void {
+    this._onEvent = listener;
+  }
+
   private _log(level: ConnectionLogEntry['level'], message: string, detail?: string | LogSection[]): void {
     this._onLog?.({ timestamp: Date.now(), level, message, detail });
+  }
+
+  private _emitEvent(serverId: string, event: Omit<McpEventEntry, 'id' | 'timestamp'>): void {
+    this._onEvent?.(serverId, {
+      id: `evt-${Date.now()}-${++this._eventCounter}`,
+      timestamp: Date.now(),
+      ...event,
+    });
+  }
+
+  private _registerNotificationHandlers(client: Client, serverId: string): void {
+    client.setNotificationHandler(LoggingMessageNotificationSchema, notification => {
+      const logger = notification.params.logger;
+      const prefix = logger ? `${logger}: ` : '';
+      this._emitEvent(serverId, {
+        method: notification.method,
+        title: `${prefix}${notification.params.level}`,
+        level: notification.params.level,
+        logger,
+        data: notification.params.data,
+      });
+    });
+
+    client.setNotificationHandler(ProgressNotificationSchema, notification => {
+      const total = notification.params.total;
+      const message = notification.params.message;
+      const progressText = total !== undefined
+        ? `${notification.params.progress}/${total}`
+        : `${notification.params.progress}`;
+      this._emitEvent(serverId, {
+        method: notification.method,
+        title: message ? `${message} (${progressText})` : `Progress ${progressText}`,
+        level: 'info',
+        data: notification.params,
+      });
+    });
+
+    client.setNotificationHandler(ToolListChangedNotificationSchema, notification => {
+      this._emitEvent(serverId, {
+        method: notification.method,
+        title: 'Tools list changed',
+        level: 'notice',
+        data: notification.params,
+      });
+    });
+
+    client.setNotificationHandler(ResourceListChangedNotificationSchema, notification => {
+      this._emitEvent(serverId, {
+        method: notification.method,
+        title: 'Resources list changed',
+        level: 'notice',
+        data: notification.params,
+      });
+    });
+
+    client.setNotificationHandler(PromptListChangedNotificationSchema, notification => {
+      this._emitEvent(serverId, {
+        method: notification.method,
+        title: 'Prompts list changed',
+        level: 'notice',
+        data: notification.params,
+      });
+    });
   }
 
   private async _measure<T>(label: string, operation: () => Promise<T>): Promise<T> {
@@ -107,8 +183,10 @@ export class McpClientManager {
 
     const client = new Client(
       { name: 'mcp-tool-explorer', version: this._version },
-      { capabilities: { tools: {}, resources: {}, prompts: {} } },
+      { capabilities: { tools: {}, resources: {}, prompts: {}, logging: {} } },
     );
+
+    this._registerNotificationHandlers(client, config.id);
 
     const transport = this._createTransport(config);
 
@@ -162,6 +240,16 @@ export class McpClientManager {
     }
 
     this._connections.set(config.id, { client, config });
+
+    const capabilities = client.getServerCapabilities();
+    if (capabilities?.logging !== undefined) {
+      try {
+        await this._measure('Set logging level', () => client.setLoggingLevel('info'));
+        this._log('info', 'Server logging level set to info.');
+      } catch (error: unknown) {
+        this._log('warn', 'Failed to set server logging level', error instanceof Error ? error.message : String(error));
+      }
+    }
   }
 
   async disconnect(serverId: string): Promise<void> {
@@ -229,6 +317,25 @@ export class McpClientManager {
 
   async getPrompt(serverId: string, name: string, args: Record<string, string>) {
     return this._client(serverId).getPrompt({ name, arguments: args });
+  }
+
+  getServerDetails(serverId: string): McpServerDetails {
+    const client = this._client(serverId);
+    const serverInfo = client.getServerVersion();
+
+    return {
+      serverInfo: serverInfo
+        ? {
+          name: serverInfo.name,
+          version: serverInfo.version,
+          title: serverInfo.title,
+          description: serverInfo.description,
+          websiteUrl: serverInfo.websiteUrl,
+        }
+        : undefined,
+      instructions: client.getInstructions(),
+      capabilities: client.getServerCapabilities() as Record<string, unknown> | undefined,
+    };
   }
 
   disposeAll(): void {

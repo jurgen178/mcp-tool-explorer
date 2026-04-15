@@ -1,7 +1,7 @@
 import React, { useReducer, useEffect } from 'react';
 import { postMessage } from './vscode';
 import type {
-  McpServerConfig, McpTool, McpResource, McpPrompt,
+  McpEventEntry, McpServerConfig, McpServerDetails, McpTool, McpResource, McpPrompt,
   MessageToWebview, ConnectionStatus, RequestEntry, RequestInfo, HistoryEntry, CapabilityKind, CapabilityLoadState,
 } from './types';
 import Sidebar from './components/Sidebar';
@@ -10,6 +10,7 @@ import ResourcesPanel from './components/ResourcesPanel';
 import PromptsPanel from './components/PromptsPanel';
 import HistoryPanel from './components/HistoryPanel';
 import ConnectionLogPanel from './components/ConnectionLogPanel';
+import EventsPanel from './components/EventsPanel';
 import AddServerModal from './components/AddServerModal';
 import CopyButton from './components/CopyButton';
 
@@ -51,9 +52,11 @@ interface AppState {
   serversLoading: boolean;
   serverStatus: Record<string, ConnectionStatus>;
   serverErrors: Record<string, string>;
+  serverDetails: Record<string, McpServerDetails | undefined>;
+  serverEvents: Record<string, McpEventEntry[]>;
   capabilityLoadState: CapabilityLoadStateByKind;
   selectedServerId: string | null;
-  activeTab: 'tools' | 'resources' | 'prompts' | 'history' | 'log';
+  activeTab: 'tools' | 'resources' | 'prompts' | 'history' | 'events' | 'log';
   tools: Record<string, McpTool[]>;
   resources: Record<string, McpResource[]>;
   prompts: Record<string, McpPrompt[]>;
@@ -69,6 +72,9 @@ type Action =
   | { type: 'SERVER_REMOVED'; serverId: string }
   | { type: 'CONNECTING'; serverId: string }
   | { type: 'CONNECTED'; serverId: string }
+  | { type: 'SERVER_DETAILS_LOADED'; serverId: string; details: McpServerDetails }
+  | { type: 'SERVER_EVENT'; serverId: string; event: McpEventEntry }
+  | { type: 'SERVER_EVENTS_CLEAR'; serverId: string }
   | { type: 'DISCONNECTED'; serverId: string }
   | { type: 'CONNECTION_ERROR'; serverId: string; error: string }
   | { type: 'CAPABILITY_LOAD_FAILED'; serverId: string; capability: CapabilityKind }
@@ -78,7 +84,7 @@ type Action =
   | { type: 'REQUEST_DONE'; requestId: string; data: unknown; isError: boolean }
   | { type: 'REQUEST_STARTED'; requestId: string }
   | { type: 'SELECT_SERVER'; serverId: string }
-  | { type: 'SELECT_TAB'; tab: 'tools' | 'resources' | 'prompts' | 'history' | 'log' }
+  | { type: 'SELECT_TAB'; tab: 'tools' | 'resources' | 'prompts' | 'history' | 'events' | 'log' }
   | { type: 'SHOW_ADD_SERVER'; show: boolean }
   | { type: 'EXT_ERROR'; message: string; requestId?: string }
   | { type: 'CONNECTION_LOG'; serverId: string; log: ConnectionLogEntry }
@@ -92,6 +98,8 @@ const initialState: AppState = {
   serversLoading: true,
   serverStatus: {},
   serverErrors: {},
+  serverDetails: {},
+  serverEvents: {},
   capabilityLoadState: {
     tools: {},
     resources: {},
@@ -168,6 +176,8 @@ function reducer(state: AppState, action: Action): AppState {
       const { [action.serverId]: _toolState, ...toolLoadState } = state.capabilityLoadState.tools;
       const { [action.serverId]: _resourceState, ...resourceLoadState } = state.capabilityLoadState.resources;
       const { [action.serverId]: _promptState, ...promptLoadState } = state.capabilityLoadState.prompts;
+      const { [action.serverId]: _details, ...serverDetails } = state.serverDetails;
+      const { [action.serverId]: _events, ...serverEvents } = state.serverEvents;
       const { [action.serverId]: _t, ...tools } = state.tools;
       const { [action.serverId]: _r, ...resources } = state.resources;
       const { [action.serverId]: _p, ...prompts } = state.prompts;
@@ -181,6 +191,8 @@ function reducer(state: AppState, action: Action): AppState {
           resources: resourceLoadState,
           prompts: promptLoadState,
         },
+        serverDetails,
+        serverEvents,
         tools,
         resources,
         prompts,
@@ -193,6 +205,8 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         serverStatus: { ...state.serverStatus, [action.serverId]: 'connecting' },
         serverErrors: { ...state.serverErrors, [action.serverId]: '' },
+        serverDetails: { ...state.serverDetails, [action.serverId]: undefined },
+        serverEvents: { ...state.serverEvents, [action.serverId]: [] },
         capabilityLoadState: setAllCapabilityStates(state.capabilityLoadState, action.serverId, 'loading'),
         tools: { ...state.tools, [action.serverId]: [] },
         resources: { ...state.resources, [action.serverId]: [] },
@@ -204,6 +218,29 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         serverStatus: { ...state.serverStatus, [action.serverId]: 'connected' },
         serverErrors: { ...state.serverErrors, [action.serverId]: '' },
+      };
+
+    case 'SERVER_DETAILS_LOADED':
+      return {
+        ...state,
+        serverDetails: { ...state.serverDetails, [action.serverId]: action.details },
+      };
+
+    case 'SERVER_EVENT': {
+      const existing = state.serverEvents[action.serverId] ?? [];
+      return {
+        ...state,
+        serverEvents: {
+          ...state.serverEvents,
+          [action.serverId]: [action.event, ...existing].slice(0, 300),
+        },
+      };
+    }
+
+    case 'SERVER_EVENTS_CLEAR':
+      return {
+        ...state,
+        serverEvents: { ...state.serverEvents, [action.serverId]: [] },
       };
 
     case 'DISCONNECTED':
@@ -336,6 +373,8 @@ export default function App() {
         case 'serverAdded':     dispatch({ type: 'SERVER_ADDED',      server: msg.server }); break;
         case 'serverRemoved':   dispatch({ type: 'SERVER_REMOVED',    serverId: msg.serverId }); break;
         case 'connected':       dispatch({ type: 'CONNECTED',         serverId: msg.serverId }); break;
+        case 'serverDetailsLoaded': dispatch({ type: 'SERVER_DETAILS_LOADED', serverId: msg.serverId, details: msg.details }); break;
+        case 'serverEvent':     dispatch({ type: 'SERVER_EVENT',      serverId: msg.serverId, event: msg.event }); break;
         case 'disconnected':    dispatch({ type: 'DISCONNECTED',      serverId: msg.serverId }); break;
         case 'connectionError': dispatch({ type: 'CONNECTION_ERROR',  serverId: msg.serverId, error: msg.error }); dispatch({ type: 'SELECT_TAB', tab: 'log' }); break;
         case 'capabilityLoadFailed': dispatch({ type: 'CAPABILITY_LOAD_FAILED', serverId: msg.serverId, capability: msg.capability }); break;
@@ -375,6 +414,7 @@ export default function App() {
     // Start each connection attempt with a fresh log so transport diagnostics are
     // scoped to the current session instead of accumulating across reconnects.
     dispatch({ type: 'CONNECTION_LOG_CLEAR', serverId });
+    dispatch({ type: 'SERVER_EVENTS_CLEAR', serverId });
     dispatch({ type: 'CONNECTING', serverId });
     postMessage({ type: 'connect', serverId });
   };
@@ -433,6 +473,7 @@ export default function App() {
         servers={state.servers}
         serversLoading={state.serversLoading}
         serverStatus={state.serverStatus}
+        serverDetails={state.serverDetails}
         selectedServerId={state.selectedServerId}
         onSelect={handleSelectServer}
         onConnect={handleConnect}
@@ -499,6 +540,17 @@ export default function App() {
                 );
               })()}
               {(() => {
+                const count = (state.serverEvents[selectedServer.id] ?? []).length;
+                return (
+                  <div
+                    className={`tab${state.activeTab === 'events' ? ' active' : ''}`}
+                    onClick={() => dispatch({ type: 'SELECT_TAB', tab: 'events' })}
+                  >
+                    Events{count > 0 ? ` (${count})` : ''}
+                  </div>
+                );
+              })()}
+              {(() => {
                 const logCount = (state.connectionLogs[selectedServer.id] ?? []).length;
                 return (
                   <div
@@ -554,6 +606,12 @@ export default function App() {
                 history={state.history.filter(e => e.serverId === selectedServer.id)}
                 onClear={() => dispatch({ type: 'HISTORY_CLEAR', serverId: selectedServer.id })}
                 onRerun={(toolName, args) => handleRerun(toolName, args)}
+              />
+            )}
+            {state.activeTab === 'events' && (
+              <EventsPanel
+                events={state.serverEvents[selectedServer.id] ?? []}
+                onClear={() => dispatch({ type: 'SERVER_EVENTS_CLEAR', serverId: selectedServer.id })}
               />
             )}
             {state.activeTab === 'log' && (
