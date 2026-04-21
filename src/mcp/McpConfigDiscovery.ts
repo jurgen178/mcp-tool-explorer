@@ -8,8 +8,24 @@ function stableId(source: string, name: string): string {
   return `${source}:${name}`;
 }
 
+const GLOBAL_STATE_KEY = 'manualServers';
+const SECRETS_PREFIX = 'env:';
+
+/** Stored shape — env is kept separately in secrets, so we omit it here. */
+type StoredServer = Omit<McpServerConfig, 'env'>;
+
 export class McpConfigDiscovery {
+  private readonly _context: vscode.ExtensionContext;
   private readonly _manualServers: McpServerConfig[] = [];
+
+  constructor(context: vscode.ExtensionContext) {
+    this._context = context;
+    // Restore persisted servers (without env — loaded lazily in discoverServers)
+    const stored = context.globalState.get<StoredServer[]>(GLOBAL_STATE_KEY, []);
+    for (const s of stored) {
+      this._manualServers.push({ ...s, env: {} });
+    }
+  }
 
   async discoverServers(): Promise<McpServerConfig[]> {
     const servers: McpServerConfig[] = [];
@@ -46,28 +62,62 @@ export class McpConfigDiscovery {
       }
     }
 
-    // 3. Manually added servers (added via the Add Server UI)
+    // 3. Manually added servers — load env from secrets
+    for (const server of this._manualServers) {
+      const envRaw = await this._context.secrets.get(`${SECRETS_PREFIX}${server.id}`);
+      server.env = envRaw ? (JSON.parse(envRaw) as Record<string, string>) : {};
+    }
     servers.push(...this._manualServers);
 
     return servers;
   }
 
-  addManualServer(config: Omit<McpServerConfig, 'id' | 'source'>): McpServerConfig {
+  async addManualServer(config: Omit<McpServerConfig, 'id' | 'source'>): Promise<McpServerConfig> {
+    const { env, ...rest } = config;
     const server: McpServerConfig = {
-      ...config,
+      ...rest,
+      env: env ?? {},
       id: `manual:${Date.now()}`,
       source: 'manual',
     };
     this._manualServers.push(server);
+    await this._persist(server);
     return server;
   }
 
-  removeManualServer(serverId: string): void {
+  async updateManualServer(serverId: string, config: Omit<McpServerConfig, 'id' | 'source'>): Promise<McpServerConfig | undefined> {
     const idx = this._manualServers.findIndex(s => s.id === serverId);
-    if (idx !== -1) this._manualServers.splice(idx, 1);
+    if (idx === -1) return undefined;
+    const { env, ...rest } = config;
+    const updated: McpServerConfig = { ...rest, env: env ?? {}, id: serverId, source: 'manual' };
+    this._manualServers[idx] = updated;
+    await this._persist(updated);
+    return updated;
+  }
+
+  async removeManualServer(serverId: string): Promise<void> {
+    const idx = this._manualServers.findIndex(s => s.id === serverId);
+    if (idx !== -1) {
+      this._manualServers.splice(idx, 1);
+      await this._context.secrets.delete(`${SECRETS_PREFIX}${serverId}`);
+      await this._saveGlobalState();
+    }
   }
 
   // ── Private ───────────────────────────────────────────────────────────────
+
+  private async _persist(server: McpServerConfig): Promise<void> {
+    if (server.env && Object.keys(server.env).length > 0) {
+      await this._context.secrets.store(`${SECRETS_PREFIX}${server.id}`, JSON.stringify(server.env));
+    }
+    await this._saveGlobalState();
+  }
+
+  private async _saveGlobalState(): Promise<void> {
+    // Persist server metadata without env (stored separately in secrets)
+    const toStore: StoredServer[] = this._manualServers.map(({ env: _env, ...rest }) => rest);
+    await this._context.globalState.update(GLOBAL_STATE_KEY, toStore);
+  }
 
   private _parse(
     name: string,

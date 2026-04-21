@@ -120,6 +120,7 @@ export type MessageToExtension =
   | { type: 'completePromptArgument'; serverId: string; promptName: string; argumentName: string; value: string; contextArgs: Record<string, string>; requestId: string }
   | { type: 'getPrompt'; serverId: string; promptName: string; args: Record<string, string>; requestId: string }
   | { type: 'addServer'; config: Omit<McpServerConfig, 'id' | 'source'> }
+  | { type: 'updateServer'; serverId: string; config: Omit<McpServerConfig, 'id' | 'source'> }
   | { type: 'removeServer'; serverId: string };
 
 // ── Messages: Extension → Webview ──────────────────────────────────────────
@@ -127,6 +128,7 @@ export type MessageToExtension =
 export type MessageToWebview =
   | { type: 'serversLoaded'; servers: McpServerConfig[] }
   | { type: 'serverAdded'; server: McpServerConfig }
+  | { type: 'serverUpdated'; server: McpServerConfig }
   | { type: 'serverRemoved'; serverId: string }
   | { type: 'connected'; serverId: string }
   | { type: 'serverDetailsLoaded'; serverId: string; details: McpServerDetails }

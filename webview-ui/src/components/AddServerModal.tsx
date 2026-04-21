@@ -4,18 +4,27 @@ import type { McpServerConfig } from '../types';
 interface Props {
   onAdd: (config: McpServerConfig) => void;
   onClose: () => void;
+  /** When set, the dialog operates in edit mode for this server. */
+  editServerId?: string;
+  initialConfig?: McpServerConfig;
 }
 
 type ServerType = 'stdio' | 'sse' | 'http';
 
-export default function AddServerModal({ onAdd, onClose }: Props) {
-  const [name, setName]     = useState('');
-  const [type, setType]     = useState<ServerType>('stdio'); // user picks: stdio / sse / http
-  const [command, setCmd]   = useState('');
-  const [args, setArgs]     = useState('');
-  const [env, setEnv]       = useState('');
-  const [url, setUrl]       = useState('');
-  const [headers, setHdr]   = useState('');
+function kvLines(obj: Record<string, string> | undefined): string {
+  if (!obj) return '';
+  return Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('\n');
+}
+
+export default function AddServerModal({ onAdd, onClose, editServerId, initialConfig }: Props) {
+  const isEdit = editServerId !== undefined;
+  const [name, setName]     = useState(initialConfig?.name ?? '');
+  const [type, setType]     = useState<ServerType>((initialConfig?.type as ServerType) ?? 'stdio');
+  const [command, setCmd]   = useState(initialConfig?.command ?? '');
+  const [args, setArgs]     = useState((initialConfig?.args ?? []).join(' '));
+  const [env, setEnv]       = useState(kvLines(initialConfig?.env));
+  const [url, setUrl]       = useState(initialConfig?.url ?? '');
+  const [headers, setHdr]   = useState(kvLines(initialConfig?.headers));
   const [error, setError]   = useState('');
 
   function parseKvLines(raw: string): Record<string, string> {
@@ -48,13 +57,13 @@ export default function AddServerModal({ onAdd, onClose }: Props) {
       headers: type !== 'stdio' ? parseKvLines(headers) : undefined,
     };
 
-    onAdd(config as McpServerConfig);
+    onAdd({ ...config, id: editServerId ?? '', source: 'manual' } as McpServerConfig);
   }
 
   return (
     <div className="overlay" onClick={onClose}>
       <div className="modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-title">Add MCP Server</div>
+        <div className="modal-title">{isEdit ? 'Edit MCP Server' : 'Add MCP Server'}</div>
 
         <form onSubmit={handleSubmit}>
           {/* Name + Type row */}
@@ -111,7 +120,7 @@ export default function AddServerModal({ onAdd, onClose }: Props) {
 
           <div className="modal-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn btn-primary">Add Server</button>
+            <button type="submit" className="btn btn-primary">{isEdit ? 'Save' : 'Add Server'}</button>
           </div>
         </form>
       </div>

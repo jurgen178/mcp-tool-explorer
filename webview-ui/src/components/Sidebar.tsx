@@ -16,6 +16,7 @@ interface Props {
   onConnect: (id: string) => void;
   onDisconnect: (id: string) => void;
   onRemove: (id: string) => void;
+  onEdit: (server: McpServerConfig) => void;
   onAdd: () => void;
 }
 
@@ -55,7 +56,7 @@ function buildTooltip(server: McpServerConfig, status: ConnectionStatus, details
 
 export default function Sidebar({
   servers, serversLoading, serverStatus, serverDetails, selectedServerId,
-  onSelect, onConnect, onDisconnect, onRemove, onAdd,
+  onSelect, onConnect, onDisconnect, onRemove, onEdit, onAdd,
 }: Props) {
   return (
     <div className="sidebar">
@@ -113,11 +114,18 @@ export default function Sidebar({
               ) : null}
 
               {server.source === 'manual' && (
-                <button
-                  className="icon-btn server-remove-btn"
-                  title="Remove server"
-                  onClick={e => { e.stopPropagation(); onRemove(server.id); }}
-                >✕</button>
+                <>
+                  <button
+                    className="icon-btn server-edit-btn"
+                    title="Edit server"
+                    onClick={e => { e.stopPropagation(); onEdit(server); }}
+                  >✎</button>
+                  <button
+                    className="icon-btn server-remove-btn"
+                    title="Remove server"
+                    onClick={e => { e.stopPropagation(); onRemove(server.id); }}
+                  >✕</button>
+                </>
               )}
             </div>
           );

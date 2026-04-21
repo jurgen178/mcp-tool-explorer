@@ -38,7 +38,7 @@ export class McpToolExplorerPanel {
       },
     );
 
-    McpToolExplorerPanel.currentPanel = new McpToolExplorerPanel(panel, context.extensionUri);
+    McpToolExplorerPanel.currentPanel = new McpToolExplorerPanel(panel, context);
   }
 
   public static refresh(): void {
@@ -47,13 +47,13 @@ export class McpToolExplorerPanel {
 
   // ── Constructor ───────────────────────────────────────────────────────────
 
-  private constructor(panel: vscode.WebviewPanel, extensionUri: vscode.Uri) {
+  private constructor(panel: vscode.WebviewPanel, context: vscode.ExtensionContext) {
     this._panel = panel;
-    this._extensionUri = extensionUri;
+    this._extensionUri = context.extensionUri;
     const ext = vscode.extensions.getExtension('jurgen178.mcp-tool-explorer');
     const version: string = (ext?.packageJSON as { version?: string })?.version ?? '1.0.0';
     this._clientManager = new McpClientManager(version);
-    this._configDiscovery = new McpConfigDiscovery();
+    this._configDiscovery = new McpConfigDiscovery(context);
 
     this._panel.webview.html = this._buildHtml();
 
@@ -184,16 +184,25 @@ export class McpToolExplorerPanel {
       }
 
       case 'addServer': {
-        const server = this._configDiscovery.addManualServer(message.config);
+        const server = await this._configDiscovery.addManualServer(message.config);
         this._servers.set(server.id, server);
         this._post({ type: 'serverAdded', server });
+        break;
+      }
+
+      case 'updateServer': {
+        const updated = await this._configDiscovery.updateManualServer(message.serverId, message.config);
+        if (updated) {
+          this._servers.set(updated.id, updated);
+          this._post({ type: 'serverUpdated', server: updated });
+        }
         break;
       }
 
       case 'removeServer': {
         const wasConnected = this._clientManager.isConnected(message.serverId);
         if (wasConnected) await this._clientManager.disconnect(message.serverId);
-        this._configDiscovery.removeManualServer(message.serverId);
+        await this._configDiscovery.removeManualServer(message.serverId);
         this._servers.delete(message.serverId);
         this._post({ type: 'serverRemoved', serverId: message.serverId });
         break;

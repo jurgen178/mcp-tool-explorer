@@ -64,6 +64,7 @@ interface AppState {
   history: HistoryEntry[];
   connectionLogs: Record<string, ConnectionLogEntry[]>;
   showAddServer: boolean;
+  editingServer: McpServerConfig | null;
 }
 
 type Action =
@@ -86,6 +87,7 @@ type Action =
   | { type: 'SELECT_SERVER'; serverId: string }
   | { type: 'SELECT_TAB'; tab: 'tools' | 'resources' | 'prompts' | 'history' | 'events' | 'log' }
   | { type: 'SHOW_ADD_SERVER'; show: boolean }
+  | { type: 'SHOW_EDIT_SERVER'; server: McpServerConfig | null }
   | { type: 'EXT_ERROR'; message: string; requestId?: string }
   | { type: 'CONNECTION_LOG'; serverId: string; log: ConnectionLogEntry }
   | { type: 'CONNECTION_LOG_CLEAR'; serverId: string }
@@ -114,6 +116,7 @@ const initialState: AppState = {
   history: [],
   connectionLogs: {},
   showAddServer: false,
+  editingServer: null,
 };
 
 function setCapabilityState(
@@ -164,9 +167,13 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SERVER_ADDED':
       return {
         ...state,
-        servers: [...state.servers, action.server],
-        serverStatus: { ...state.serverStatus, [action.server.id]: 'disconnected' },
-        capabilityLoadState: setAllCapabilityStates(state.capabilityLoadState, action.server.id, 'idle'),
+        servers: state.servers.some(s => s.id === action.server.id)
+          ? state.servers.map(s => s.id === action.server.id ? action.server : s)
+          : [...state.servers, action.server],
+        serverStatus: { ...state.serverStatus, [action.server.id]: state.serverStatus[action.server.id] ?? 'disconnected' },
+        capabilityLoadState: state.capabilityLoadState.tools[action.server.id]
+          ? state.capabilityLoadState
+          : setAllCapabilityStates(state.capabilityLoadState, action.server.id, 'idle'),
       };
 
     case 'SERVER_REMOVED': {
@@ -353,6 +360,9 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SHOW_ADD_SERVER':
       return { ...state, showAddServer: action.show };
 
+    case 'SHOW_EDIT_SERVER':
+      return { ...state, editingServer: action.server };
+
     default:
       return state;
   }
@@ -371,6 +381,7 @@ export default function App() {
       switch (msg.type) {
         case 'serversLoaded':   dispatch({ type: 'SERVERS_LOADED',    servers: msg.servers }); break;
         case 'serverAdded':     dispatch({ type: 'SERVER_ADDED',      server: msg.server }); break;
+        case 'serverUpdated':   dispatch({ type: 'SERVER_ADDED',      server: msg.server }); break;
         case 'serverRemoved':   dispatch({ type: 'SERVER_REMOVED',    serverId: msg.serverId }); break;
         case 'connected':       dispatch({ type: 'CONNECTED',         serverId: msg.serverId }); break;
         case 'serverDetailsLoaded': dispatch({ type: 'SERVER_DETAILS_LOADED', serverId: msg.serverId, details: msg.details }); break;
@@ -436,6 +447,15 @@ export default function App() {
     dispatch({ type: 'SHOW_ADD_SERVER', show: false });
   };
 
+  const handleEditServer = (server: McpServerConfig) => {
+    dispatch({ type: 'SHOW_EDIT_SERVER', server });
+  };
+
+  const handleUpdateServer = (config: McpServerConfig) => {
+    postMessage({ type: 'updateServer', serverId: state.editingServer!.id, config });
+    dispatch({ type: 'SHOW_EDIT_SERVER', server: null });
+  };
+
   const handleStartRequest = (requestId: string, info: RequestInfo) => {
     dispatch({ type: 'REQUEST_STARTED', requestId });
     dispatch({
@@ -479,6 +499,7 @@ export default function App() {
         onConnect={handleConnect}
         onDisconnect={handleDisconnect}
         onRemove={handleRemoveServer}
+        onEdit={handleEditServer}
         onAdd={() => dispatch({ type: 'SHOW_ADD_SERVER', show: true })}
       />
 
@@ -647,6 +668,15 @@ export default function App() {
         <AddServerModal
           onAdd={handleAddServer}
           onClose={() => dispatch({ type: 'SHOW_ADD_SERVER', show: false })}
+        />
+      )}
+
+      {state.editingServer && (
+        <AddServerModal
+          editServerId={state.editingServer.id}
+          initialConfig={state.editingServer}
+          onAdd={handleUpdateServer}
+          onClose={() => dispatch({ type: 'SHOW_EDIT_SERVER', server: null })}
         />
       )}
     </div>
