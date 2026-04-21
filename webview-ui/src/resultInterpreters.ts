@@ -123,11 +123,61 @@ function tryJsonInterpreter(raw: unknown): ResultInterpretation | null {
   }
 }
 
+// ── HTML interpreter ─────────────────────────────────────────────────────────
+// Finds string values that contain an HTML <body> fragment anywhere in the
+// result (including inside parsed JSON strings) and collects them for a
+// dedicated sandboxed HTML preview tab.
+
+function collectHtmlStrings(raw: unknown, results: string[], seen: WeakSet<object>) {
+  if (typeof raw === 'string') {
+    // If the string looks like a JSON object/array, parse and recurse into it
+    // before checking for HTML — handles multiply-encoded JSON payloads.
+    const t = raw.trim();
+    if ((t.startsWith('{') || t.startsWith('[')) && !seen.has(raw as unknown as object)) {
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (typeof parsed === 'object' && parsed !== null) {
+          collectHtmlStrings(parsed, results, seen);
+          return;
+        }
+      } catch { /* not JSON, fall through to HTML check */ }
+    }
+    if (/<body[\s>][\s\S]*<\/body>/i.test(raw)) results.push(raw);
+    return;
+  }
+  if (Array.isArray(raw)) {
+    for (const item of raw) collectHtmlStrings(item, results, seen);
+    return;
+  }
+  if (typeof raw !== 'object' || raw === null) return;
+  if (seen.has(raw)) return;
+  seen.add(raw);
+  for (const value of Object.values(raw as Record<string, unknown>)) {
+    collectHtmlStrings(value, results, seen);
+  }
+}
+
+function tryHtmlInterpreter(raw: unknown): ResultInterpretation | null {
+  // Prefer scanning the parsed JSON object over the raw MCP envelope.
+  // Scanning the raw envelope would also match the entire JSON text string
+  // (which contains the HTML as a substring), producing a wrong fragment.
+  let dataToScan: unknown = raw;
+  if (isMcpContentArray(raw) && raw.length === 1 && raw[0].type === 'text' && typeof raw[0].text === 'string') {
+    try { dataToScan = JSON.parse(raw[0].text); } catch { /* not JSON, scan raw */ }
+  }
+
+  const htmlFragments: string[] = [];
+  collectHtmlStrings(dataToScan, htmlFragments, new WeakSet());
+  if (htmlFragments.length === 0) return null;
+  return { id: 'html', label: 'HTML', data: htmlFragments };
+}
+
 // ── Registry ──────────────────────────────────────────────────────────────────
 // Add new interpreters here as additional formats are supported.
 
 const INTERPRETERS: Interpreter[] = [
   tryJsonInterpreter,
+  tryHtmlInterpreter,
   tryTextInterpreter,
   tryImageInterpreter,
 ];

@@ -8,6 +8,22 @@ interface Props {
 }
 
 function renderInterpretation(interp: ResultInterpretation) {
+  if (interp.id === 'html') {
+    return (
+      <div className="html-result-list">
+        {(interp.data as string[]).map((html, idx) => (
+          <iframe
+            key={idx}
+            srcDoc={html}
+            sandbox=""
+            className="html-result"
+            title={`HTML preview ${idx + 1}`}
+          />
+        ))}
+      </div>
+    );
+  }
+
   if (interp.id === 'text') {
     return (
       <div className="text-result-list">
