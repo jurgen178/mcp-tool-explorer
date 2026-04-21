@@ -47,7 +47,12 @@ function validateJsonArgs(json: string, schema: InputSchema): { errors: string[]
     // vendor-specific or forward-compatible arguments when needed.
     const known = Object.keys(schema.properties);
     for (const key of Object.keys(obj)) {
-      if (!known.includes(key)) warnings.push(`Unknown property: "${key}"`);
+      if (!known.includes(key)) {
+        const caseMatch = known.find(k => k.toLowerCase() === key.toLowerCase());
+        warnings.push(caseMatch
+          ? `Unknown property: "${key}" — did you mean "${caseMatch}"? Property names are case-sensitive.`
+          : `Unknown property: "${key}"`);
+      }
     }
   }
   return { errors, warnings };
