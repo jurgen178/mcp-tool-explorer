@@ -109,6 +109,9 @@ export class McpConfigDiscovery {
   private async _persist(server: McpServerConfig): Promise<void> {
     if (server.env && Object.keys(server.env).length > 0) {
       await this._context.secrets.store(`${SECRETS_PREFIX}${server.id}`, JSON.stringify(server.env));
+    } else {
+      // Remove stale secret if env was cleared (e.g. user deleted all vars on edit)
+      await this._context.secrets.delete(`${SECRETS_PREFIX}${server.id}`);
     }
     await this._saveGlobalState();
   }

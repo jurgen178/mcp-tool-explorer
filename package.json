@@ -23,7 +23,6 @@
   ],
   "icon": "resources/icon.png",
   "activationEvents": [
-    "onCommand:mcpToolExplorer.open",
     "workspaceContains:.vscode/mcp.json"
   ],
   "main": "./dist/extension.js",
