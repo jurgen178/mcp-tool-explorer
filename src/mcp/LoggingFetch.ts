@@ -2,6 +2,8 @@
  * Creates a fetch wrapper that logs every HTTP request and response detail,
  * useful for diagnosing connection issues with MCP servers.
  */
+import { clampLogText } from './logText';
+import { SENSITIVE_HEADER_NAMES } from './sensitiveHeaders';
 
 export interface FetchLogEntry {
   timestamp: number;
@@ -19,6 +21,14 @@ export interface FetchLogEntry {
   durationMs: number;
 }
 
+function redactHeaders(headers: Headers): Record<string, string> {
+  const result: Record<string, string> = {};
+  headers.forEach((value, name) => {
+    result[name] = SENSITIVE_HEADER_NAMES.has(name.toLowerCase()) ? '*** redacted ***' : value;
+  });
+  return result;
+}
+
 export function createLoggingFetch(
   onLog: (entry: FetchLogEntry) => void,
 ): typeof globalThis.fetch {
@@ -26,8 +36,7 @@ export function createLoggingFetch(
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
     const method = init?.method ?? (input instanceof Request ? input.method : 'GET');
 
-    const reqHeaders: Record<string, string> = {};
-    new Headers(init?.headers).forEach((v, k) => { reqHeaders[k] = v; });
+    const reqHeaders = redactHeaders(new Headers(init?.headers));
 
     // Try to extract the JSON-RPC method name from the request body
     let rpcMethod = '';
@@ -36,7 +45,7 @@ export function createLoggingFetch(
       if (init?.body && typeof init.body === 'string') {
         const parsed = JSON.parse(init.body);
         if (parsed.method) rpcMethod = parsed.method;
-        requestBody = JSON.stringify(parsed, null, 2);
+        requestBody = clampLogText(JSON.stringify(parsed, null, 2));
       }
     } catch { /* not JSON or no method */ }
 
@@ -44,8 +53,7 @@ export function createLoggingFetch(
     try {
       const response = await globalThis.fetch(input, init);
 
-      const resHeaders: Record<string, string> = {};
-      response.headers.forEach((v, k) => { resHeaders[k] = v; });
+      const resHeaders = redactHeaders(response.headers);
 
       let bodyExcerpt = '';
       let responseBody = '';
@@ -68,12 +76,12 @@ export function createLoggingFetch(
         const c = response.clone();
         const t = await c.text();
         if (!response.ok) {
-          bodyExcerpt = t.length > 500 ? t.substring(0, 500) + '…' : t;
+          bodyExcerpt = clampLogText(t);
         }
         try {
-          responseBody = JSON.stringify(JSON.parse(t), null, 2);
+          responseBody = clampLogText(JSON.stringify(JSON.parse(t), null, 2));
         } catch {
-          responseBody = t.length > 2000 ? t.substring(0, 2000) + '…' : t;
+          responseBody = clampLogText(t);
         }
       } catch { /* */ }
 
@@ -88,7 +96,7 @@ export function createLoggingFetch(
       onLog({
         timestamp: start, method, url, rpcMethod, requestHeaders: reqHeaders,
         requestBody, status: null, statusText: '', responseHeaders: {},
-        responseBody: '', bodyExcerpt: '', error: err instanceof Error ? err.message : String(err),
+        responseBody: '', bodyExcerpt: '', error: clampLogText(err instanceof Error ? err.message : String(err)),
         durationMs: Date.now() - start,
       });
       throw err;

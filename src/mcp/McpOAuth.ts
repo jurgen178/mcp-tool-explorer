@@ -42,6 +42,21 @@ export function createOAuthHandler(
 }
 
 /**
+ * Maps an authorization server URL to a VS Code authentication provider ID.
+ * Returns undefined for unknown or absent providers — callers skip auth silently
+ * and the original 401 response is returned to the caller.
+ */
+function resolveProviderId(authServer: string): string | undefined {
+  if (authServer.includes('microsoftonline.com') || authServer.includes('microsoft')) {
+    return 'microsoft';
+  }
+  if (authServer.includes('github.com')) {
+    return 'github';
+  }
+  return undefined;
+}
+
+/**
  * Parse the `www-authenticate` header, fetch OAuth resource metadata from the
  * same origin as the original request, and acquire a token via VS Code.
  */
@@ -81,10 +96,15 @@ async function discoverAndAcquireToken(
     const tokenScopes = appScopes.length > 0 ? appScopes : scopes;
     if (tokenScopes.length === 0) return undefined;
 
-    // Use VS Code's built-in Microsoft auth provider
-    let session = await vscode.authentication.getSession('microsoft', tokenScopes, { silent: true });
+    // Derive the VS Code auth provider from the authorization_servers metadata.
+    // Falls back to 'microsoft' when the field is absent (Entra ID / Azure AD).
+    const authServer = meta.authorization_servers?.[0] ?? '';
+    const providerId = resolveProviderId(authServer);
+    if (!providerId) return undefined; // unknown provider — cannot acquire token
+
+    let session = await vscode.authentication.getSession(providerId, tokenScopes, { silent: true });
     if (!session) {
-      session = await vscode.authentication.getSession('microsoft', tokenScopes, { createIfNone: true });
+      session = await vscode.authentication.getSession(providerId, tokenScopes, { createIfNone: true });
     }
     return session?.accessToken;
   } catch {

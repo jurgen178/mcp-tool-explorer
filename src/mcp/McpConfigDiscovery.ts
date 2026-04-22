@@ -4,8 +4,8 @@ import * as fs from 'fs';
 import type { McpServerConfig } from '../types';
 
 /** Stable ID for a discovered server so the frontend can track connections. */
-function stableId(source: string, name: string): string {
-  return `${source}:${name}`;
+function stableId(source: string, name: string, scope?: string): string {
+  return `${source}:${scope ?? 'global'}:${name}`;
 }
 
 const GLOBAL_STATE_KEY = 'manualServers';
@@ -41,7 +41,7 @@ export class McpConfigDiscovery {
             (raw['mcpServers'] as Record<string, unknown>) ??
             {};
           for (const [name, cfg] of Object.entries(mcpServers)) {
-            servers.push(this._parse(name, cfg as Record<string, unknown>, 'vscode-mcp.json', folder.uri.fsPath));
+            servers.push(this._parse(name, cfg as Record<string, unknown>, 'vscode-mcp.json', folder.uri.fsPath, folder.name));
           }
         } catch {
           // malformed JSON — skip silently
@@ -58,7 +58,7 @@ export class McpConfigDiscovery {
     for (const [name, cfg] of Object.entries(settingsServers)) {
       // Deduplicate by name — skip if already discovered from any source
       if (!servers.some(s => s.name === name)) {
-        servers.push(this._parse(name, cfg as Record<string, unknown>, 'settings', firstFolder));
+        servers.push(this._parse(name, cfg as Record<string, unknown>, 'settings', firstFolder, firstFolder));
       }
     }
 
@@ -127,6 +127,7 @@ export class McpConfigDiscovery {
     cfg: Record<string, unknown>,
     source: McpServerConfig['source'],
     workspaceRoot?: string,
+    idScope?: string,
   ): McpServerConfig {
     const explicitType = cfg['type'] as string | undefined;
     const url = cfg['url'] as string | undefined;
@@ -141,7 +142,7 @@ export class McpConfigDiscovery {
     }
 
     return {
-      id: stableId(source, name),
+      id: stableId(source, name, idScope ?? workspaceRoot),
       name,
       type,
       command: cfg['command'] as string | undefined,

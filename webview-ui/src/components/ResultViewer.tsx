@@ -7,6 +7,23 @@ interface Props {
   isError?: boolean;
 }
 
+const HTML_BASE_STYLE = `<style>
+  :root { color-scheme: light dark; }
+  body {
+    font-family: system-ui, sans-serif;
+    font-size: 12px;
+    line-height: 1.5;
+    margin: 12px 16px;
+  }
+</style>`;
+
+function injectBaseStyle(html: string): string {
+  if (/<head[\s>]/i.test(html)) {
+    return html.replace(/(<head[\s>][^>]*>)/i, `$1\n  ${HTML_BASE_STYLE}`);
+  }
+  return HTML_BASE_STYLE + '\n' + html;
+}
+
 function renderInterpretation(interp: ResultInterpretation) {
   if (interp.id === 'html') {
     return (
@@ -14,7 +31,7 @@ function renderInterpretation(interp: ResultInterpretation) {
         {(interp.data as string[]).map((html, idx) => (
           <iframe
             key={idx}
-            srcDoc={html}
+            srcDoc={injectBaseStyle(html)}
             sandbox=""
             className="html-result"
             title={`HTML preview ${idx + 1}`}

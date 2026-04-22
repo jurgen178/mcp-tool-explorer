@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { postMessage } from '../vscode';
+import { usePanelResize } from '../hooks/usePanelResize';
 import type { McpPrompt, RequestEntry, RequestInfo, CapabilityLoadState, MessageToWebview } from '../types';
 import JsonViewer from './JsonViewer';
 import { extractTextValues } from '../resultInterpreters';
@@ -36,6 +37,7 @@ function getVisibleCompletionValues(values: string[] | undefined, currentValue: 
 }
 
 export default function PromptsPanel({ serverId, prompts, loadState, requests, isConnected, onStartRequest }: Props) {
+  const { listRef, handleRef } = usePanelResize({ storageKey: 'panel-list-width:prompts' });
   const [selected, setSelected] = useState<McpPrompt | null>(null);
   const [argValues, setArgValues] = useState<Record<string, string>>({});
   const [lastReqId, setLastReqId] = useState<string | null>(null);
@@ -160,7 +162,7 @@ export default function PromptsPanel({ serverId, prompts, loadState, requests, i
   return (
     <div className="panel">
       {/* List */}
-      <div className="panel-list scroll-list">
+      <div className="panel-list" ref={listRef}>
         {prompts.length === 0 ? (
           <div className="empty-state empty-state-compact">
             <p>
@@ -184,6 +186,8 @@ export default function PromptsPanel({ serverId, prompts, loadState, requests, i
           </div>
         ))}
       </div>
+
+      <div className="panel-resize-handle" ref={handleRef} />
 
       {/* Detail */}
       <div className="panel-detail">

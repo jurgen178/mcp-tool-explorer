@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { postMessage } from '../vscode';
+import { usePanelResize } from '../hooks/usePanelResize';
 import type { McpResource, RequestEntry, RequestInfo, CapabilityLoadState } from '../types';
 import JsonViewer from './JsonViewer';
 import { extractTextValues } from '../resultInterpreters';
@@ -17,6 +18,7 @@ let reqCounter = 0;
 function nextReqId() { return `res-${Date.now()}-${++reqCounter}`; }
 
 export default function ResourcesPanel({ serverId, resources, loadState, requests, isConnected, onStartRequest }: Props) {
+  const { listRef, handleRef } = usePanelResize({ storageKey: 'panel-list-width:resources' });
   const [selected, setSelected] = useState<McpResource | null>(null);
   const [lastReqId, setLastReqId] = useState<string | null>(null);
   const [activeResultTab, setActiveResultTab] = useState<'raw' | 'text'>('raw');
@@ -53,7 +55,7 @@ export default function ResourcesPanel({ serverId, resources, loadState, request
   return (
     <div className="panel">
       {/* List */}
-      <div className="panel-list scroll-list">
+      <div className="panel-list" ref={listRef}>
         {resources.length === 0 ? (
           <div className="empty-state empty-state-compact">
             <p>
@@ -78,6 +80,8 @@ export default function ResourcesPanel({ serverId, resources, loadState, request
           </div>
         ))}
       </div>
+
+      <div className="panel-resize-handle" ref={handleRef} />
 
       {/* Detail */}
       <div className="panel-detail">

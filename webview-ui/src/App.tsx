@@ -1,4 +1,4 @@
-import React, { useReducer, useEffect } from 'react';
+import React, { useReducer, useEffect, useRef } from 'react';
 import { postMessage } from './vscode';
 import type {
   McpEventEntry, McpServerConfig, McpServerDetails, McpTool, McpResource, McpPrompt,
@@ -70,6 +70,7 @@ interface AppState {
 type Action =
   | { type: 'SERVERS_LOADED'; servers: McpServerConfig[] }
   | { type: 'SERVER_ADDED'; server: McpServerConfig }
+  | { type: 'SERVER_UPDATED'; server: McpServerConfig }
   | { type: 'SERVER_REMOVED'; serverId: string }
   | { type: 'CONNECTING'; serverId: string }
   | { type: 'CONNECTED'; serverId: string }
@@ -176,6 +177,12 @@ function reducer(state: AppState, action: Action): AppState {
           : setAllCapabilityStates(state.capabilityLoadState, action.server.id, 'idle'),
       };
 
+    case 'SERVER_UPDATED':
+      return {
+        ...state,
+        servers: state.servers.map(s => s.id === action.server.id ? action.server : s),
+      };
+
     case 'SERVER_REMOVED': {
       const servers = state.servers.filter(s => s.id !== action.serverId);
       const { [action.serverId]: _ss, ...serverStatus } = state.serverStatus;
@@ -188,6 +195,15 @@ function reducer(state: AppState, action: Action): AppState {
       const { [action.serverId]: _t, ...tools } = state.tools;
       const { [action.serverId]: _r, ...resources } = state.resources;
       const { [action.serverId]: _p, ...prompts } = state.prompts;
+      const { [action.serverId]: _cl, ...connectionLogs } = state.connectionLogs;
+      // Drop all pending/completed request entries that belong to this server,
+      // identified via the history (which tracks serverId per request).
+      const removedRequestIds = new Set(
+        state.history.filter(e => e.serverId === action.serverId).map(e => e.id),
+      );
+      const requests = Object.fromEntries(
+        Object.entries(state.requests).filter(([id]) => !removedRequestIds.has(id)),
+      );
       return {
         ...state,
         servers,
@@ -203,6 +219,8 @@ function reducer(state: AppState, action: Action): AppState {
         tools,
         resources,
         prompts,
+        connectionLogs,
+        requests,
         selectedServerId: state.selectedServerId === action.serverId ? null : state.selectedServerId,
       };
     }
@@ -381,7 +399,7 @@ export default function App() {
       switch (msg.type) {
         case 'serversLoaded':   dispatch({ type: 'SERVERS_LOADED',    servers: msg.servers }); break;
         case 'serverAdded':     dispatch({ type: 'SERVER_ADDED',      server: msg.server }); break;
-        case 'serverUpdated':   dispatch({ type: 'SERVER_ADDED',      server: msg.server }); break;
+        case 'serverUpdated':   dispatch({ type: 'SERVER_UPDATED',    server: msg.server }); break;
         case 'serverRemoved':   dispatch({ type: 'SERVER_REMOVED',    serverId: msg.serverId }); break;
         case 'connected':       dispatch({ type: 'CONNECTED',         serverId: msg.serverId }); break;
         case 'serverDetailsLoaded': dispatch({ type: 'SERVER_DETAILS_LOADED', serverId: msg.serverId, details: msg.details }); break;
@@ -481,6 +499,116 @@ export default function App() {
 
   const [pendingRerun, setPendingRerun] = React.useState<{ serverId: string | null; toolName: string; args: unknown } | null>(null);
 
+  // ── Sidebar resize ───────────────────────────────────────────────────────
+
+  const sidebarWrapperRef = useRef<HTMLDivElement>(null);
+  const sidebarHandleRef = useRef<HTMLDivElement>(null);
+  const appRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const SIDEBAR_KEY = 'sidebar-width';
+    const SIDEBAR_DEFAULT = 220;
+    const SIDEBAR_MIN = 150;
+    const SIDEBAR_MAX = 500;
+    const MIN_MAIN = 300;
+    const handle = sidebarHandleRef.current;
+    const wrapper = sidebarWrapperRef.current;
+    const app = appRef.current;
+    if (!handle || !wrapper) return;
+
+    const getMaxSidebarWidth = () => app
+      ? Math.max(0, Math.min(SIDEBAR_MAX, app.clientWidth - MIN_MAIN))
+      : SIDEBAR_MAX;
+
+    const clampSidebarWidth = (width: number, maxWidth = getMaxSidebarWidth()) => {
+      const safeMax = Math.max(0, maxWidth);
+      const safeMin = Math.min(SIDEBAR_MIN, safeMax);
+      return Math.max(safeMin, Math.min(safeMax, width));
+    };
+
+    const applySidebarWidth = (width: number) => {
+      wrapper.style.setProperty('--sidebar-width', `${width}px`);
+    };
+
+    // Restore persisted width
+    const stored = localStorage.getItem(SIDEBAR_KEY);
+    const parsed = stored ? parseInt(stored, 10) : NaN;
+    const initial = clampSidebarWidth(!isNaN(parsed) ? parsed : SIDEBAR_DEFAULT);
+    applySidebarWidth(initial);
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const startX = e.clientX;
+      const startWidth = wrapper.getBoundingClientRect().width;
+      handle.setPointerCapture(e.pointerId);
+      app?.classList.add('sidebar-resizing');
+
+      let dragActive = true;
+
+      const clamp = (x: number) => clampSidebarWidth(startWidth + x - startX);
+
+      const persistCurrentWidth = () => {
+        const finalWidth = clampSidebarWidth(wrapper.getBoundingClientRect().width);
+        applySidebarWidth(finalWidth);
+        localStorage.setItem(SIDEBAR_KEY, String(finalWidth));
+      };
+
+      const onPointerMove = (ev: PointerEvent) => {
+        applySidebarWidth(clamp(ev.clientX));
+      };
+
+      const cleanupDrag = (pointerId?: number) => {
+        if (!dragActive) return;
+        dragActive = false;
+        app?.classList.remove('sidebar-resizing');
+        document.removeEventListener('pointermove', onPointerMove);
+        document.removeEventListener('pointerup', onPointerUp);
+        handle.removeEventListener('pointercancel', onPointerCancel);
+        handle.removeEventListener('lostpointercapture', onLostPointerCapture);
+        if (pointerId !== undefined && handle.hasPointerCapture(pointerId)) {
+          handle.releasePointerCapture(pointerId);
+        }
+      };
+
+      const onPointerUp = (ev: PointerEvent) => {
+        applySidebarWidth(clamp(ev.clientX));
+        persistCurrentWidth();
+        cleanupDrag(ev.pointerId);
+      };
+
+      const onPointerCancel = () => {
+        persistCurrentWidth();
+        cleanupDrag();
+      };
+
+      const onLostPointerCapture = () => {
+        persistCurrentWidth();
+        cleanupDrag();
+      };
+
+      document.addEventListener('pointermove', onPointerMove);
+      document.addEventListener('pointerup', onPointerUp);
+      handle.addEventListener('pointercancel', onPointerCancel);
+      handle.addEventListener('lostpointercapture', onLostPointerCapture);
+    };
+
+    handle.addEventListener('pointerdown', onPointerDown);
+
+    // Clamp sidebar width when the window shrinks (e.g. un-maximized)
+    const observer = new ResizeObserver(() => {
+      if (!app) return;
+      const currentSidebar = wrapper.getBoundingClientRect().width;
+      applySidebarWidth(clampSidebarWidth(currentSidebar));
+    });
+    if (app) observer.observe(app);
+
+    return () => {
+      handle.removeEventListener('pointerdown', onPointerDown);
+      observer.disconnect();
+    };
+  }, []);
+
   // ── Selected server data ─────────────────────────────────────────────────
 
   const selectedServer = state.servers.find(s => s.id === state.selectedServerId) ?? null;
@@ -488,20 +616,23 @@ export default function App() {
   const isConnected = selectedStatus === 'connected';
 
   return (
-    <div className="app">
-      <Sidebar
-        servers={state.servers}
-        serversLoading={state.serversLoading}
-        serverStatus={state.serverStatus}
-        serverDetails={state.serverDetails}
-        selectedServerId={state.selectedServerId}
-        onSelect={handleSelectServer}
-        onConnect={handleConnect}
-        onDisconnect={handleDisconnect}
-        onRemove={handleRemoveServer}
-        onEdit={handleEditServer}
-        onAdd={() => dispatch({ type: 'SHOW_ADD_SERVER', show: true })}
-      />
+    <div className="app" ref={appRef}>
+      <div className="sidebar-wrapper" ref={sidebarWrapperRef}>
+        <Sidebar
+          servers={state.servers}
+          serversLoading={state.serversLoading}
+          serverStatus={state.serverStatus}
+          serverDetails={state.serverDetails}
+          selectedServerId={state.selectedServerId}
+          onSelect={handleSelectServer}
+          onConnect={handleConnect}
+          onDisconnect={handleDisconnect}
+          onRemove={handleRemoveServer}
+          onEdit={handleEditServer}
+          onAdd={() => dispatch({ type: 'SHOW_ADD_SERVER', show: true })}
+        />
+        <div className="resize-handle" ref={sidebarHandleRef} />
+      </div>
 
       <div className="main">
         {selectedServer ? (

@@ -175,12 +175,19 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
                 key={idx}
                 style={{
                   borderBottom: '1px solid var(--vscode-widget-border, #2d2d2d)',
-                  cursor: hasDetail ? 'pointer' : 'default',
                 }}
-                onClick={() => hasDetail && toggleExpand(idx)}
               >
                 {/* Summary line */}
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '4px 14px' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 8,
+                    padding: '4px 14px',
+                    cursor: hasDetail ? 'pointer' : 'default',
+                  }}
+                  onClick={() => hasDetail && toggleExpand(idx)}
+                >
                   <span style={{ color: 'var(--vscode-descriptionForeground)', flexShrink: 0, fontSize: 11 }}>
                     {formatTime(entry.timestamp)}
                   </span>

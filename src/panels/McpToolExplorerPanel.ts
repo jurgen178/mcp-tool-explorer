@@ -95,7 +95,7 @@ export class McpToolExplorerPanel {
           return;
         }
         // Wire up log listener so every log entry streams to the webview
-        this._clientManager.setLogListener((log) => {
+        this._clientManager.setLogListener(message.serverId, (log) => {
           this._post({ type: 'connectionLog', serverId: message.serverId, log });
         });
         this._clientManager.setEventListener((serverId, event) => {

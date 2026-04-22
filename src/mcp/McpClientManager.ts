@@ -1,3 +1,4 @@
+import { URL } from 'url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
@@ -12,6 +13,8 @@ import {
 import type { McpEventEntry, McpServerConfig, McpServerDetails, McpTool, McpResource, McpPrompt } from '../types';
 import { createOAuthHandler } from './McpOAuth';
 import { createLoggingFetch, type FetchLogEntry } from './LoggingFetch';
+import { clampLogText } from './logText';
+import { SENSITIVE_HEADER_NAMES } from './sensitiveHeaders';
 
 export interface LogSection {
   kind: 'request' | 'response' | 'request-headers' | 'response-headers' | 'error' | 'text';
@@ -38,34 +41,34 @@ interface RecentEventGroup {
 export class McpClientManager {
   private readonly _connections = new Map<string, ActiveConnection>();
   private readonly _version: string;
-  /** Callback to emit log entries to the panel during connect. */
-  private _onLog: ((entry: ConnectionLogEntry) => void) | undefined;
+  /** Log listeners are tracked per server so concurrent connections stay isolated. */
+  private readonly _logListeners = new Map<string, (entry: ConnectionLogEntry) => void>();
   private _onEvent: ((serverId: string, event: McpEventEntry) => void) | undefined;
   private _eventCounter = 0;
   private readonly _recentEventGroups = new Map<string, RecentEventGroup>();
-  private readonly _urlCtor = (globalThis as unknown as { URL: new (input: string) => { pathname: string } & object }).URL;
 
   constructor(version: string) {
     this._version = version;
   }
 
   /** Set a listener for connection log entries (called before connect). */
-  setLogListener(listener: (entry: ConnectionLogEntry) => void): void {
-    this._onLog = listener;
+  setLogListener(serverId: string, listener: (entry: ConnectionLogEntry) => void): void {
+    this._logListeners.set(serverId, listener);
   }
 
   setEventListener(listener: (serverId: string, event: McpEventEntry) => void): void {
     this._onEvent = listener;
   }
 
-  private _log(level: ConnectionLogEntry['level'], message: string, detail?: string | LogSection[]): void {
-    this._onLog?.({ timestamp: Date.now(), level, message, detail });
+  private _log(serverId: string, level: ConnectionLogEntry['level'], message: string, detail?: string | LogSection[]): void {
+    this._logListeners.get(serverId)?.({ timestamp: Date.now(), level, message, detail });
   }
 
   private _emitEvent(serverId: string, event: Omit<McpEventEntry, 'id' | 'timestamp'>): void {
+    const now = Date.now();
     this._onEvent?.(serverId, {
-      id: `evt-${Date.now()}-${++this._eventCounter}`,
-      timestamp: Date.now(),
+      id: `evt-${now}-${++this._eventCounter}`,
+      timestamp: now,
       ...event,
     });
   }
@@ -79,7 +82,7 @@ export class McpClientManager {
     return key;
   }
 
-  private _getRecentEventGroup(serverId: string, maxAgeMs = 600): string | undefined {
+  private _getRecentEventGroup(serverId: string, maxAgeMs = 2000): string | undefined {
     const recent = this._recentEventGroups.get(serverId);
     if (!recent) {
       return undefined;
@@ -186,21 +189,98 @@ export class McpClientManager {
     };
   }
 
-  private async _measure<T>(label: string, operation: () => Promise<T>): Promise<T> {
+  private async _measure<T>(serverId: string, label: string, operation: () => Promise<T>): Promise<T> {
     const startedAt = Date.now();
-    this._log('info', `${label} started`);
+    this._log(serverId, 'info', `${label} started`);
 
     try {
       const result = await operation();
-      this._log('info', `${label} finished in ${Date.now() - startedAt}ms`);
+      this._log(serverId, 'info', `${label} finished in ${Date.now() - startedAt}ms`);
       return result;
     } catch (error: unknown) {
-      this._log('error', `${label} failed after ${Date.now() - startedAt}ms`, error instanceof Error ? error.message : String(error));
+      this._log(serverId, 'error', `${label} failed after ${Date.now() - startedAt}ms`, error instanceof Error ? error.message : String(error));
       throw error;
     }
   }
 
-  private _logFetchEntry(entry: FetchLogEntry): void {
+  private _serializeLogValue(value: unknown): string {
+    if (typeof value === 'string') {
+      return clampLogText(value);
+    }
+
+    try {
+      const serialized = JSON.stringify(value, null, 2);
+      return clampLogText(serialized ?? String(value));
+    } catch {
+      return clampLogText(String(value));
+    }
+  }
+
+  private _summarizeLogValue(label: string, value: unknown): string {
+    const serialized = this._serializeLogValue(value);
+
+    if (typeof value === 'string') {
+      return `${label}: string (${value.length} chars)`;
+    }
+
+    if (Array.isArray(value)) {
+      return `${label}: array (${value.length} items, ${serialized.length} chars)`;
+    }
+
+    if (value && typeof value === 'object') {
+      return `${label}: object (${Object.keys(value).length} keys, ${serialized.length} chars)`;
+    }
+
+    return `${label}: ${typeof value} (${serialized.length} chars)`;
+  }
+
+  private _redactHeaders(headers: Record<string, string> | undefined): Record<string, string> | undefined {
+    if (!headers) {
+      return undefined;
+    }
+
+    return Object.fromEntries(
+      Object.entries(headers).map(([name, value]) => [
+        name,
+        SENSITIVE_HEADER_NAMES.has(name.toLowerCase()) ? '*** redacted ***' : value,
+      ]),
+    );
+  }
+
+  private async _measureRequest<T>(
+    serverId: string,
+    label: string,
+    request: unknown,
+    operation: () => Promise<T>,
+    serializeResult: (result: T) => string,
+    summarizeResult: (result: T) => string,
+  ): Promise<T> {
+    const startedAt = Date.now();
+    const requestContent = this._serializeLogValue(request);
+    this._log(serverId, 'info', `${label} started`, [{ kind: 'request', content: requestContent }]);
+
+    try {
+      const result = await operation();
+      const responseContent = serializeResult(result);
+      this._log(serverId, 'info', `${label} finished in ${Date.now() - startedAt}ms`, [
+        { kind: 'response', content: responseContent },
+        { kind: 'text', content: summarizeResult(result) },
+      ]);
+      return result;
+    } catch (error: unknown) {
+      const errorDetail = error instanceof Error
+        ? clampLogText([error.message, error.stack].filter(Boolean).join('\n\n'))
+        : clampLogText(String(error));
+
+      this._log(serverId, 'error', `${label} failed after ${Date.now() - startedAt}ms`, [
+        { kind: 'request', content: requestContent },
+        { kind: 'error', content: errorDetail },
+      ]);
+      throw error;
+    }
+  }
+
+  private _logFetchEntry(serverId: string, entry: FetchLogEntry): void {
     const statusStr = entry.status !== null ? `${entry.status} ${entry.statusText}` : 'NETWORK ERROR';
     const level: ConnectionLogEntry['level'] = entry.error ? 'error' : (entry.status && entry.status >= 400) ? 'warn' : 'info';
 
@@ -229,7 +309,9 @@ export class McpClientManager {
     }
 
     const rpcLabel = entry.rpcMethod ? ` (${entry.rpcMethod})` : '';
-    this._log(level, `HTTP ${entry.method} ${new this._urlCtor(entry.url).pathname}${rpcLabel}  →  ${statusStr}`, sections.length > 0 ? sections : undefined);
+    let pathname: string;
+    try { pathname = new URL(entry.url).pathname; } catch { pathname = entry.url; }
+    this._log(serverId, level, `HTTP ${entry.method} ${pathname}${rpcLabel}  →  ${statusStr}`, sections.length > 0 ? sections : undefined);
   }
 
   isConnected(serverId: string): boolean {
@@ -242,10 +324,10 @@ export class McpClientManager {
       await this.disconnect(config.id);
     }
 
-    this._log('info', `Connecting to "${config.name}"…`, [
+    this._log(config.id, 'info', `Connecting to "${config.name}"`, [
       `Type: ${config.type}`,
       config.url ? `URL: ${config.url}` : `Command: ${config.command} ${(config.args ?? []).join(' ')}`,
-      config.headers ? `Headers: ${JSON.stringify(config.headers)}` : '',
+      config.headers ? `Headers: ${JSON.stringify(this._redactHeaders(config.headers))}` : '',
       config.cwd ? `CWD: ${config.cwd}` : '',
     ].filter(Boolean).join('\n'));
 
@@ -265,59 +347,52 @@ export class McpClientManager {
       stdioTransport.stderr?.on('data', (chunk: { toString(): string }) => {
         const line = chunk.toString();
         stderrOutput += line;
-        this._log('warn', 'Server stderr', line.trim());
+        this._log(config.id, 'warn', 'Server stderr', line.trim());
       });
     }
 
     try {
-      this._log('info', `Attempting ${config.type.toUpperCase()} transport…`);
-      await this._measure(`Connect ${config.type.toUpperCase()} transport`, () => client.connect(transport));
-      this._log('info', `Connected successfully via ${config.type.toUpperCase()}.`);
+      this._log(config.id, 'info', `Attempting ${config.type.toUpperCase()} transport`);
+      await this._measure(config.id, `Connect ${config.type.toUpperCase()} transport`, () => client.connect(transport));
+      this._log(config.id, 'info', `Connected successfully via ${config.type.toUpperCase()}`);
     } catch (e: unknown) {
       const baseMsg = e instanceof Error ? e.message : String(e);
       const stack = e instanceof Error ? e.stack : undefined;
-      this._log('error', `${config.type.toUpperCase()} transport failed`, [baseMsg, stack ? `Stack: ${stack}` : ''].filter(Boolean).join('\n'));
+      this._log(config.id, 'error', `${config.type.toUpperCase()} transport failed`, [baseMsg, stack ? `Stack: ${stack}` : ''].filter(Boolean).join('\n'));
 
       // Fall back from Streamable HTTP to SSE (per MCP spec recommendation)
       if (config.type === 'http' && config.url) {
         try { await client.close(); } catch { /* ignore cleanup errors */ }
 
-        this._log('info', 'Falling back to SSE transport…');
+        this._log(config.id, 'info', 'Falling back to SSE transport');
         const sseClient = new Client(
           { name: 'mcp-tool-explorer', version: this._version },
           { capabilities: { logging: {} } as Record<string, unknown> },
         );
+        this._registerNotificationHandlers(sseClient, config.id);
         const sseTransport = this._createTransport({ ...config, type: 'sse' });
         try {
-          await this._measure('Connect SSE transport fallback', () => sseClient.connect(sseTransport));
-          this._log('info', 'Connected successfully via SSE.');
+          await this._measure(config.id, 'Connect SSE transport fallback', () => sseClient.connect(sseTransport));
+          this._log(config.id, 'info', 'Connected successfully via SSE');
           this._connections.set(config.id, { client: sseClient, config });
+          await this._setLoggingLevelIfSupported(config.id, sseClient);
           return;
         } catch (e2: unknown) {
           try { await sseClient.close(); } catch { /* ensure EventSource is stopped */ }
           const sseMsg = e2 instanceof Error ? e2.message : String(e2);
-          this._log('error', 'SSE transport also failed', sseMsg);
+          this._log(config.id, 'error', 'SSE transport also failed', sseMsg);
           // SSE also failed — fall through to throw the original error
         }
       }
 
       const detail = stderrOutput.trim();
       const fullError = detail ? `${baseMsg}\n\nServer stderr:\n${detail}` : baseMsg;
-      this._log('error', 'Connection failed', fullError);
+      this._log(config.id, 'error', 'Connection failed', fullError);
       throw new Error(fullError);
     }
 
     this._connections.set(config.id, { client, config });
-
-    const capabilities = client.getServerCapabilities();
-    if (capabilities?.logging !== undefined) {
-      try {
-        await this._measure('Set logging level', () => client.setLoggingLevel('info'));
-        this._log('info', 'Server logging level set to info.');
-      } catch (error: unknown) {
-        this._log('warn', 'Failed to set server logging level', error instanceof Error ? error.message : String(error));
-      }
-    }
+    await this._setLoggingLevelIfSupported(config.id, client);
   }
 
   async disconnect(serverId: string): Promise<void> {
@@ -326,48 +401,106 @@ export class McpClientManager {
       try { await conn.client.close(); } catch { /* ignore */ }
       this._connections.delete(serverId);
     }
+    this._recentEventGroups.delete(serverId);
+    this._logListeners.delete(serverId);
   }
 
   async listTools(serverId: string): Promise<McpTool[]> {
     if (!this._supportsCapability(serverId, 'tools')) {
-      this._log('info', 'Tools not supported by this server.');
+      this._log(serverId, 'info', 'Tools not supported by this server');
       return [];
     }
-    const { tools } = await this._measure('List tools', () => this._client(serverId).listTools());
-    return tools as McpTool[];
+    return this._measureRequest(
+      serverId,
+      'List tools',
+      { method: 'tools/list' },
+      async () => {
+        const { tools } = await this._client(serverId).listTools();
+        return tools as McpTool[];
+      },
+      result => this._serializeLogValue(result),
+      result => this._summarizeLogValue('Tools', result),
+    );
   }
 
-  async callTool(serverId: string, name: string, args: Record<string, unknown>) {
-    return this._client(serverId).callTool(
+  async callTool(serverId: string, name: string, args: Record<string, unknown>): ReturnType<Client['callTool']> {
+    return this._measureRequest(
+      serverId,
+      `Call tool ${name}`,
       { name, arguments: args },
-      undefined,
-      this._buildProgressOptions(serverId, name),
+      () => this._client(serverId).callTool(
+        { name, arguments: args },
+        undefined,
+        this._buildProgressOptions(serverId, name),
+      ),
+      result => this._serializeLogValue(result),
+      result => [
+        this._summarizeLogValue('Result content', result.content),
+        `Tool reported error: ${result.isError === true ? 'yes' : 'no'}`,
+      ].join('\n'),
     );
   }
 
   async listResources(serverId: string): Promise<McpResource[]> {
     if (!this._supportsCapability(serverId, 'resources')) {
-      this._log('info', 'Resources not supported by this server.');
+      this._log(serverId, 'info', 'Resources not supported by this server');
       return [];
     }
-    const { resources } = await this._measure('List resources', () => this._client(serverId).listResources());
-    return resources as McpResource[];
+    return this._measureRequest(
+      serverId,
+      'List resources',
+      { method: 'resources/list' },
+      async () => {
+        const { resources } = await this._client(serverId).listResources();
+        return resources as McpResource[];
+      },
+      result => this._serializeLogValue(result),
+      result => this._summarizeLogValue('Resources', result),
+    );
   }
 
-  async readResource(serverId: string, uri: string) {
-    return this._client(serverId).readResource(
+  async readResource(serverId: string, uri: string): ReturnType<Client['readResource']> {
+    return this._measureRequest(
+      serverId,
+      `Read resource ${uri}`,
       { uri },
-      this._buildProgressOptions(serverId, 'readResource'),
+      () => this._client(serverId).readResource(
+        { uri },
+        this._buildProgressOptions(serverId, 'readResource'),
+      ),
+      result => this._serializeLogValue(result),
+      result => this._summarizeLogValue('Resource result', result),
     );
   }
 
   async listPrompts(serverId: string): Promise<McpPrompt[]> {
     if (!this._supportsCapability(serverId, 'prompts')) {
-      this._log('info', 'Prompts not supported by this server.');
+      this._log(serverId, 'info', 'Prompts not supported by this server');
       return [];
     }
-    const { prompts } = await this._measure('List prompts', () => this._client(serverId).listPrompts());
-    return prompts as McpPrompt[];
+    return this._measureRequest(
+      serverId,
+      'List prompts',
+      { method: 'prompts/list' },
+      async () => {
+        const { prompts } = await this._client(serverId).listPrompts();
+        return prompts as McpPrompt[];
+      },
+      result => this._serializeLogValue(result),
+      result => this._summarizeLogValue('Prompts', result),
+    );
+  }
+
+  private async _setLoggingLevelIfSupported(serverId: string, client: Client): Promise<void> {
+    const capabilities = client.getServerCapabilities();
+    if (capabilities?.logging !== undefined) {
+      try {
+        await this._measure(serverId, 'Set logging level', () => client.setLoggingLevel('info'));
+        this._log(serverId, 'info', 'Server logging level set to info');
+      } catch (error: unknown) {
+        this._log(serverId, 'warn', 'Failed to set server logging level', error instanceof Error ? error.message : String(error));
+      }
+    }
   }
 
   async completePromptArgument(
@@ -377,23 +510,53 @@ export class McpClientManager {
     value: string,
     contextArgs: Record<string, string>,
   ): Promise<string[]> {
+    const context = Object.keys(contextArgs).length > 0 ? { arguments: contextArgs } : undefined;
+
     if (!this._supportsCapability(serverId, 'completions')) {
+      this._log(serverId, 'info', `Prompt argument completion not supported for ${promptName}.${argumentName}`, [{
+        kind: 'request',
+        content: this._serializeLogValue({
+          ref: { type: 'ref/prompt', name: promptName },
+          argument: { name: argumentName, value },
+          context,
+        }),
+      }]);
       return [];
     }
 
-    const result = await this._client(serverId).complete({
-      ref: { type: 'ref/prompt', name: promptName },
-      argument: { name: argumentName, value },
-      context: Object.keys(contextArgs).length > 0 ? { arguments: contextArgs } : undefined,
-    });
+    return this._measureRequest(
+      serverId,
+      `Complete prompt argument ${promptName}.${argumentName}`,
+      {
+        ref: { type: 'ref/prompt', name: promptName },
+        argument: { name: argumentName, value },
+        context,
+      },
+      async () => {
+        const result = await this._client(serverId).complete({
+          ref: { type: 'ref/prompt', name: promptName },
+          argument: { name: argumentName, value },
+          context,
+        });
 
-    return result.completion.values;
+        return result.completion.values;
+      },
+      result => this._serializeLogValue(result),
+      result => this._summarizeLogValue('Completion values', result),
+    );
   }
 
-  async getPrompt(serverId: string, name: string, args: Record<string, string>) {
-    return this._client(serverId).getPrompt(
+  async getPrompt(serverId: string, name: string, args: Record<string, string>): ReturnType<Client['getPrompt']> {
+    return this._measureRequest(
+      serverId,
+      `Get prompt ${name}`,
       { name, arguments: args },
-      this._buildProgressOptions(serverId, name),
+      () => this._client(serverId).getPrompt(
+        { name, arguments: args },
+        this._buildProgressOptions(serverId, name),
+      ),
+      result => this._serializeLogValue(result),
+      result => this._summarizeLogValue('Prompt result', result),
     );
   }
 
@@ -417,6 +580,8 @@ export class McpClientManager {
   }
 
   disposeAll(): void {
+    // disconnect() captures the conn reference synchronously before clear() runs,
+    // so fire-and-forget here is safe — clear() only removes the map entries.
     for (const [id] of this._connections) {
       this.disconnect(id).catch(() => undefined);
     }
@@ -453,13 +618,13 @@ export class McpClientManager {
     }
 
     if (!config.url) throw new Error(`Server "${config.name}" is missing a URL.`);
-    const url = new this._urlCtor(config.url);
+    const url = new URL(config.url);
     const requestInit = config.headers
       ? { headers: config.headers }
       : undefined;
 
     // Wrap fetch: logging records every request, OAuth handles 401 token acquisition
-    const loggingFetch = createLoggingFetch((entry) => this._logFetchEntry(entry));
+    const loggingFetch = createLoggingFetch((entry) => this._logFetchEntry(config.id, entry));
     const authenticatedFetch = createOAuthHandler(loggingFetch);
 
     if (config.type === 'sse') {

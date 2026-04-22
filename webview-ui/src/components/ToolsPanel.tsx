@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { postMessage } from '../vscode';
+import { usePanelResize } from '../hooks/usePanelResize';
 import type { McpTool, SchemaProperty, InputSchema, RequestEntry, RequestInfo, HistoryEntry, CapabilityLoadState } from '../types';
 import JsonViewer from './JsonViewer';
 import ResultViewer from './ResultViewer';
@@ -70,6 +71,7 @@ export default function ToolsPanel({
   const [useJson, setUseJson] = useState(false);
   const [lastReqIdByTool, setLastReqIdByTool] = useState<Record<string, string>>({});
   const [expandedPrev, setExpandedPrev] = useState<string | null>(null);
+  const { listRef, handleRef } = usePanelResize({ storageKey: 'panel-list-width:tools' });
 
   // Handle re-run signal from History tab
   useEffect(() => {
@@ -144,7 +146,7 @@ export default function ToolsPanel({
   return (
     <div className="panel">
       {/* List */}
-      <div className="panel-list scroll-list">
+      <div className="panel-list" ref={listRef}>
         {tools.length === 0 ? (
           <div className="empty-state empty-state-compact">
             <p>
@@ -176,6 +178,8 @@ export default function ToolsPanel({
           </div>
         ))}
       </div>
+
+      <div className="panel-resize-handle" ref={handleRef} />
 
       {/* Detail */}
       <div className="panel-detail">
