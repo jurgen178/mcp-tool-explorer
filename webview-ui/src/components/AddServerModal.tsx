@@ -45,7 +45,19 @@ export default function AddServerModal({ onAdd, onClose, editServerId, initialCo
 
     if (!name.trim()) { setError('Name is required.'); return; }
     if (type === 'stdio' && !command.trim()) { setError('Command is required for stdio servers.'); return; }
-    if ((type === 'sse' || type === 'http') && !url.trim()) { setError('URL is required.'); return; }
+    if (type === 'sse' || type === 'http') {
+      if (!url.trim()) { setError('URL is required.'); return; }
+      try {
+        const parsed = new URL(url.trim());
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          setError('URL must start with http:// or https://');
+          return;
+        }
+      } catch {
+        setError('URL is not valid.');
+        return;
+      }
+    }
 
     const config: Omit<McpServerConfig, 'id' | 'source'> = {
       name:    name.trim(),

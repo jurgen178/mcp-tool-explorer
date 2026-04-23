@@ -79,7 +79,7 @@ async function discoverAndAcquireToken(
   const localRmUrl = new URL(rmPath, new URL(requestUrl).origin).toString();
 
   try {
-    const rmResp = await globalThis.fetch(localRmUrl);
+    const rmResp = await globalThis.fetch(localRmUrl, { signal: AbortSignal.timeout(5000) });
     if (!rmResp.ok) return undefined;
 
     const meta = await rmResp.json() as {

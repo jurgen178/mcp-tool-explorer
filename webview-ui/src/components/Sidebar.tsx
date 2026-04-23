@@ -38,20 +38,34 @@ function describeCapability(label: string, supported: boolean | null): string {
   return `${label}: ${supported ? 'yes' : 'no'}`;
 }
 
+const STATUS_LABEL: Record<ConnectionStatus, string> = {
+  disconnected: 'Not connected',
+  connecting:   'Connecting…',
+  connected:    'Connected',
+  error:        'Error',
+};
+
 function buildTooltip(server: McpServerConfig, status: ConnectionStatus, details?: McpServerDetails): string {
-  const capabilitySupport = getCapabilitySupport(details);
   const target = server.type === 'stdio'
     ? [server.command, ...(server.args ?? [])].filter(Boolean).join(' ')
     : server.url ?? '';
 
-  return [
+  const lines = [
     server.name,
-    `Status: ${status}`,
+    `Status: ${STATUS_LABEL[status]}`,
     `Target: ${target || 'n/a'}`,
-    describeCapability('(T)ools', capabilitySupport.tools),
-    describeCapability('(R)esources', capabilitySupport.resources),
-    describeCapability('(P)rompts', capabilitySupport.prompts),
-  ].join('\n');
+  ];
+
+  if (status === 'connected') {
+    const capabilitySupport = getCapabilitySupport(details);
+    lines.push(
+      describeCapability('(T)ools', capabilitySupport.tools),
+      describeCapability('(R)esources', capabilitySupport.resources),
+      describeCapability('(P)rompts', capabilitySupport.prompts),
+    );
+  }
+
+  return lines.join('\n');
 }
 
 export default function Sidebar({
