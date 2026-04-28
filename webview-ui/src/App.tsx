@@ -457,9 +457,6 @@ export default function App() {
   };
 
   const handleRemoveServer = (serverId: string) => {
-    const server = state.servers.find(s => s.id === serverId);
-    const name = server?.config.name ?? serverId;
-    if (!window.confirm(`Remove server "${name}"?`)) return;
     postMessage({ type: 'removeServer', serverId });
   };
 

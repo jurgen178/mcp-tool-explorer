@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { McpServerConfig, ConnectionStatus, McpServerDetails } from '../types';
 
 interface CapabilitySupport {
@@ -72,6 +73,8 @@ export default function Sidebar({
   servers, serversLoading, serverStatus, serverDetails, selectedServerId,
   onSelect, onConnect, onDisconnect, onRemove, onEdit, onAdd,
 }: Props) {
+  const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
+
   return (
     <div className="sidebar">
       <div className="sidebar-header">
@@ -129,16 +132,33 @@ export default function Sidebar({
 
               {server.source === 'manual' && (
                 <>
-                  <button
-                    className="icon-btn server-edit-btn"
-                    title="Edit server"
-                    onClick={e => { e.stopPropagation(); onEdit(server); }}
-                  >✎</button>
-                  <button
-                    className="icon-btn server-remove-btn"
-                    title="Remove server"
-                    onClick={e => { e.stopPropagation(); onRemove(server.id); }}
-                  >✕</button>
+                  {pendingRemoveId === server.id ? (
+                    <>
+                      <button
+                        className="icon-btn server-remove-btn"
+                        title="Confirm remove"
+                        onClick={e => { e.stopPropagation(); setPendingRemoveId(null); onRemove(server.id); }}
+                      >✓</button>
+                      <button
+                        className="icon-btn server-edit-btn"
+                        title="Cancel"
+                        onClick={e => { e.stopPropagation(); setPendingRemoveId(null); }}
+                      >✕</button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        className="icon-btn server-edit-btn"
+                        title="Edit server"
+                        onClick={e => { e.stopPropagation(); onEdit(server); }}
+                      >✎</button>
+                      <button
+                        className="icon-btn server-remove-btn"
+                        title="Remove server"
+                        onClick={e => { e.stopPropagation(); setPendingRemoveId(server.id); }}
+                      >✕</button>
+                    </>
+                  )}
                 </>
               )}
             </div>
