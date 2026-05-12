@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import type { McpServerConfig, McpTool, TestCase, TestAssertion, TestAssertionType, TestRunResult } from '../types';
+import { useState, useCallback, useEffect } from 'react';
+import type { McpServerConfig, McpTool, SchemaProperty, InputSchema, HistoryEntry, TestCase, TestAssertion, TestAssertionType, TestRunResult } from '../types';
 import JsonViewer from './JsonViewer';
 
 interface Props {
@@ -7,6 +7,7 @@ interface Props {
   servers: McpServerConfig[];
   serverStatus: Record<string, string>;
   tools: Record<string, McpTool[]>;
+  history: HistoryEntry[];
   testResults: Record<string, TestRunResult>;
   runningTestIds: string[];
   onSave: (tests: TestCase[]) => void;
@@ -28,6 +29,85 @@ function emptyTest(serverId: string, toolName: string): TestCase {
   };
 }
 
+// ── Shared form helpers (mirrored from ToolsPanel) ──────────────────────────
+
+function buildArgs(tool: McpTool, values: Record<string, string>): Record<string, unknown> {
+  const args: Record<string, unknown> = {};
+  const props = tool.inputSchema?.properties ?? {};
+  for (const [key, schema] of Object.entries(props)) {
+    const val = values[key];
+    if (val === undefined || val === '') continue;
+    if (schema.type === 'number' || schema.type === 'integer') args[key] = Number(val);
+    else if (schema.type === 'boolean') args[key] = val === 'true';
+    else args[key] = val;
+  }
+  return args;
+}
+
+function toFieldId(prefix: string, name: string) {
+  return `${prefix}-${name.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+}
+
+function FieldInput({ name, schema, isRequired, value, onChange }: {
+  name: string; schema: SchemaProperty; isRequired: boolean; value: string; onChange: (v: string) => void;
+}) {
+  const fieldId = toFieldId('test-field', name);
+  const label = <label className="form-label" htmlFor={fieldId}>{name}{isRequired && <span className="req">*</span>}</label>;
+
+  if (schema.type === 'boolean') return (
+    <div className="form-group">
+      {label}
+      <select id={fieldId} className="form-select form-select-auto" value={value} onChange={e => onChange(e.target.value)} title={name}>
+        <option value="">(unset)</option><option value="true">true</option><option value="false">false</option>
+      </select>
+      {schema.description && <div className="form-hint">{schema.description}</div>}
+    </div>
+  );
+
+  if (schema.enum) return (
+    <div className="form-group">
+      {label}
+      <select id={fieldId} className="form-select" value={value} onChange={e => onChange(e.target.value)} title={name}>
+        <option value="">(select)</option>
+        {schema.enum.map((v, i) => <option key={i} value={String(v)}>{String(v)}</option>)}
+      </select>
+      {schema.description && <div className="form-hint">{schema.description}</div>}
+    </div>
+  );
+
+  const isMultiline = schema.type === 'array' || schema.type === 'object' || !schema.type;
+  return (
+    <div className="form-group">
+      {label}
+      {isMultiline
+        ? <textarea id={fieldId} className="form-textarea" value={value} onChange={e => onChange(e.target.value)} placeholder={schema.type === 'array' ? '["item1"]' : '{"key":"value"}'} rows={3} title={name} />
+        : <input id={fieldId} className="form-input" type={schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text'} value={value} onChange={e => onChange(e.target.value)} placeholder={String(schema.default ?? '')} title={name} />
+      }
+      {schema.description && <div className="form-hint">{schema.description}</div>}
+    </div>
+  );
+}
+
+function ToolForm({ tool, values, onChange }: {
+  tool: McpTool;
+  values: Record<string, string>;
+  onChange: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+}) {
+  const props = (tool.inputSchema as InputSchema)?.properties ?? {};
+  const required = (tool.inputSchema as InputSchema)?.required ?? [];
+  if (Object.keys(props).length === 0) return <p className="form-note">No parameters.</p>;
+  const set = (key: string, val: string) => onChange(prev => ({ ...prev, [key]: val }));
+  return (
+    <>
+      {Object.entries(props).map(([key, schema]) => (
+        <FieldInput key={key} name={key} schema={schema} isRequired={required.includes(key)} value={values[key] ?? ''} onChange={val => set(key, val)} />
+      ))}
+    </>
+  );
+}
+
+// ── Assertion labels ──────────────────────────────────────────────────────────
+
 const ASSERTION_LABELS: Record<TestAssertionType, string> = {
   'no-error': 'No error (just runs without error)',
   'contains': 'Output contains text',
@@ -45,7 +125,7 @@ function StatusIcon({ testId, results, running }: { testId: string; results: Rec
 }
 
 export default function TestsPanel({
-  tests, servers, serverStatus, tools, testResults, runningTestIds, onSave, onRun, onRunAll,
+  tests, servers, serverStatus, tools, history, testResults, runningTestIds, onSave, onRun, onRunAll,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(() => tests[0]?.id ?? null);
 
@@ -74,9 +154,7 @@ export default function TestsPanel({
     if (selectedId === id) setSelectedId(next[0]?.id ?? null);
   };
 
-  const handleRunAll = () => {
-    onRunAll();
-  };
+
 
   // ── Summary ───────────────────────────────────────────────────────────────
   const total   = tests.length;
@@ -92,7 +170,7 @@ export default function TestsPanel({
           <button className="btn btn-primary tests-btn-new" onClick={handleNew}>+ New</button>
           <button
             className="btn btn-secondary tests-btn-run-all"
-            onClick={handleRunAll}
+            onClick={onRunAll}
             disabled={tests.length === 0 || running > 0}
             title="Run all tests"
           >
@@ -142,6 +220,7 @@ export default function TestsPanel({
             servers={servers}
             serverStatus={serverStatus}
             tools={tools}
+            history={history}
             result={testResults[selected.id]}
             isRunning={runningTestIds.includes(selected.id)}
             onChange={upsert}
@@ -165,6 +244,7 @@ interface EditorProps {
   servers: McpServerConfig[];
   serverStatus: Record<string, string>;
   tools: Record<string, McpTool[]>;
+  history: HistoryEntry[];
   result: TestRunResult | undefined;
   isRunning: boolean;
   onChange: (t: TestCase) => void;
@@ -172,17 +252,60 @@ interface EditorProps {
   onDelete: () => void;
 }
 
-function TestEditor({ test, servers, serverStatus, tools, result, isRunning, onChange, onRun, onDelete }: EditorProps) {
+function TestEditor({ test, servers, serverStatus, tools, history, result, isRunning, onChange, onRun, onDelete }: EditorProps) {
+  const [useJson, setUseJson] = useState(true);
   const [argsJson, setArgsJson] = useState(() => JSON.stringify(test.args, null, 2));
+  const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [argsError, setArgsError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   const serverTools = tools[test.serverId] ?? [];
   const isConnected = serverStatus[test.serverId] === 'connected';
 
+  // If toolName is blank or stale (tools loaded after new-test was created), snap to first available
+  useEffect(() => {
+    if (serverTools.length > 0 && !serverTools.find(t => t.name === test.toolName)) {
+      onChange({ ...test, toolName: serverTools[0].name });
+    }
+  }, [test.serverId, serverTools.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const selectedTool = serverTools.find(t => t.name === test.toolName) ?? null;
+  const hasFormFields = Object.keys(selectedTool?.inputSchema?.properties ?? {}).length > 0;
+
+  // History entries for this exact tool + server combination (no args filter — empty args {} is valid)
+  const toolHistory = history
+    .filter(e => e.serverId === test.serverId && e.name === test.toolName && e.status !== 'pending')
+    .slice(0, 6);
+
   const set = <K extends keyof TestCase>(key: K, value: TestCase[K]) => onChange({ ...test, [key]: value });
   const setAssertion = <K extends keyof TestAssertion>(key: K, value: TestAssertion[K]) =>
     onChange({ ...test, assertion: { ...test.assertion, [key]: value } });
+
+  const handleToggleMode = () => {
+    if (useJson) {
+      // JSON → Form: populate form values from current JSON
+      try {
+        const parsed = JSON.parse(argsJson) as Record<string, unknown>;
+        const fv: Record<string, string> = {};
+        for (const [k, v] of Object.entries(parsed)) {
+          fv[k] = typeof v === 'object' ? JSON.stringify(v) : String(v);
+        }
+        setFormValues(fv);
+        setArgsError(null);
+      } catch { return; } // stay in JSON mode on parse error
+    } else {
+      // Form → JSON: serialize form values
+      if (selectedTool) {
+        const args = buildArgs(selectedTool, formValues);
+        const json = JSON.stringify(args, null, 2);
+        setArgsJson(json);
+        setArgsError(null);
+        onChange({ ...test, args });
+      }
+    }
+    setUseJson(v => !v);
+  };
 
   const handleArgsChange = (raw: string) => {
     setArgsJson(raw);
@@ -199,13 +322,56 @@ function TestEditor({ test, servers, serverStatus, tools, result, isRunning, onC
     }
   };
 
+  const handleFormChange = (next: React.SetStateAction<Record<string, string>>) => {
+    const resolved = typeof next === 'function' ? next(formValues) : next;
+    setFormValues(resolved);
+    if (selectedTool) {
+      onChange({ ...test, args: buildArgs(selectedTool, resolved) });
+    }
+  };
+
+  const getServerEndpoint = (serverId: string): string | undefined => {
+    const s = servers.find(srv => srv.id === serverId);
+    if (!s) return undefined;
+    if (s.url) return s.url;
+    if (s.command) return [s.command, ...(s.args ?? [])].join(' ');
+    return undefined;
+  };
+
   const handleServerChange = (serverId: string) => {
     const firstTool = (tools[serverId] ?? [])[0]?.name ?? '';
-    onChange({ ...test, serverId, toolName: firstTool });
+    setArgsJson('{}');
+    setFormValues({});
+    setArgsError(null);
+    onChange({ ...test, serverId, toolName: firstTool, args: {}, serverEndpoint: getServerEndpoint(serverId) });
+  };
+
+  // Keep serverEndpoint in sync when server list loads (e.g. on first render the field may be missing)
+  useEffect(() => {
+    const endpoint = getServerEndpoint(test.serverId);
+    if (endpoint && test.serverEndpoint !== endpoint) {
+      onChange({ ...test, serverEndpoint: endpoint });
+    }
+  }, [test.serverId, servers.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleImportHistory = (entry: HistoryEntry) => {
+    const imported = (entry.args ?? {}) as Record<string, unknown>;
+    const json = JSON.stringify(imported, null, 2);
+    setArgsJson(json);
+    setUseJson(true);
+    onChange({ ...test, args: imported });
+    setShowHistory(false);
+  };
+
+  const handleToolChange = (toolName: string) => {
+    setArgsJson('{}');
+    setFormValues({});
+    setArgsError(null);
+    onChange({ ...test, toolName, args: {} });
   };
 
   const handleCaptureSnapshot = () => {
-    if (!result?.actual) return;
+    if (result?.actual === undefined) return;
     const snapshotJson = JSON.stringify(result.actual, null, 2);
     onChange({ ...test, assertion: { type: 'equals', expected: snapshotJson } });
   };
@@ -266,7 +432,7 @@ function TestEditor({ test, servers, serverStatus, tools, result, isRunning, onC
             <select
               className="form-select"
               value={test.toolName}
-              onChange={e => set('toolName', e.target.value)}
+              onChange={e => handleToolChange(e.target.value)}
             >
               {serverTools.map(t => (
                 <option key={t.name} value={t.name}>{t.name}</option>
@@ -276,7 +442,7 @@ function TestEditor({ test, servers, serverStatus, tools, result, isRunning, onC
             <input
               className="form-input"
               value={test.toolName}
-              onChange={e => set('toolName', e.target.value)}
+              onChange={e => handleToolChange(e.target.value)}
               placeholder="Tool name (connect server to browse)"
             />
           )}
@@ -284,21 +450,63 @@ function TestEditor({ test, servers, serverStatus, tools, result, isRunning, onC
       </div>
 
       {/* ── Tool description ── */}
-      {serverTools.find(t => t.name === test.toolName)?.description && (
-        <p className="test-tool-desc">{serverTools.find(t => t.name === test.toolName)!.description}</p>
+      {selectedTool?.description && (
+        <p className="test-tool-desc">{selectedTool.description}</p>
       )}
 
       {/* ── Arguments ── */}
       <div className="form-group">
-        <label className="form-label">Arguments (JSON)</label>
-        <textarea
-          className={`form-textarea test-args-textarea${argsError ? ' input-error' : ''}`}
-          value={argsJson}
-          onChange={e => handleArgsChange(e.target.value)}
-          rows={5}
-          spellCheck={false}
-        />
-        {argsError && <div className="validation-error">{argsError}</div>}
+        <div className="test-args-header">
+          <label className="form-label test-args-label">Arguments</label>
+          <div className="test-args-toolbar">
+            {toolHistory.length > 0 && (
+              <div className="test-history-import">
+                <button
+                  className="btn btn-secondary test-history-btn"
+                  onClick={() => setShowHistory(v => !v)}
+                  title="Import args from a previous call in History"
+                >
+                  From history {showHistory ? '▲' : '▼'}
+                </button>
+                {showHistory && (
+                  <div className="test-history-menu">
+                    {toolHistory.map(e => (
+                      <button key={e.id} className="test-history-entry" onClick={() => handleImportHistory(e)}>
+                        <span className={`test-history-status${e.isError ? ' is-error' : ' is-ok'}`}>
+                          {e.isError ? '✗' : '✓'}
+                        </span>
+                        <span className="test-history-time">{new Date(e.timestamp).toLocaleTimeString()}</span>
+                        <span className="test-history-args">{e.args !== undefined ? JSON.stringify(e.args).slice(0, 60) : '(no args)'}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {hasFormFields && (
+              <button className="btn btn-secondary test-args-mode-toggle" onClick={handleToggleMode}>
+                {useJson ? 'Form view' : 'JSON view'}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {useJson ? (
+          <>
+            <textarea
+              className={`form-textarea test-args-textarea${argsError ? ' input-error' : ''}`}
+              value={argsJson}
+              onChange={e => handleArgsChange(e.target.value)}
+              rows={5}
+              spellCheck={false}
+            />
+            {argsError && <div className="validation-error">{argsError}</div>}
+          </>
+        ) : selectedTool ? (
+          <ToolForm tool={selectedTool} values={formValues} onChange={handleFormChange} />
+        ) : (
+          <p className="form-note">Connect the server to use form mode.</p>
+        )}
       </div>
 
       {/* ── Assertion ── */}
@@ -339,9 +547,9 @@ function TestEditor({ test, servers, serverStatus, tools, result, isRunning, onC
               className="form-input"
               value={test.assertion.path ?? ''}
               onChange={e => setAssertion('path', e.target.value)}
-              placeholder="e.g. content[0].text"
+              placeholder="e.g. [0].text or result.value"
             />
-            <div className="form-hint">Use dot notation: <code>content[0].text</code></div>
+            <div className="form-hint">Use dot/bracket notation, e.g. <code>[0].text</code></div>
           </div>
           <div className="form-group">
             <label className="form-label">Expected value at path</label>
@@ -368,7 +576,7 @@ function TestEditor({ test, servers, serverStatus, tools, result, isRunning, onC
                   {result.status === 'error' && '! Error'}
                 </span>
                 <span className="test-result-duration">{result.durationMs}ms</span>
-                {result.status !== 'pass' && result.actual !== undefined && (
+                {result.actual !== undefined && (
                   <button
                     className="btn btn-secondary test-result-snapshot-btn"
                     onClick={handleCaptureSnapshot}

@@ -837,6 +837,7 @@ export default function App() {
                 servers={state.servers}
                 serverStatus={state.serverStatus}
                 tools={state.tools}
+                history={state.history}
                 testResults={state.testResults}
                 runningTestIds={state.runningTestIds}
                 onSave={handleSaveTests}

@@ -224,7 +224,17 @@ export class McpToolExplorerPanel {
       case 'saveTests': {
         const filePath = this._getTestFilePath();
         if (!filePath) { break; }
-        fs.writeFileSync(filePath, JSON.stringify(message.tests, null, 2), 'utf-8');
+        // Serialize with explicit property order so the JSON is readable and consistent
+        const ordered = message.tests.map(t => ({
+          id: t.id,
+          name: t.name,
+          serverId: t.serverId,
+          serverEndpoint: t.serverEndpoint,
+          toolName: t.toolName,
+          args: t.args,
+          assertion: t.assertion,
+        }));
+        fs.writeFileSync(filePath, JSON.stringify(ordered, null, 2), 'utf-8');
         break;
       }
 
@@ -232,11 +242,17 @@ export class McpToolExplorerPanel {
         const { test, requestId } = message;
         const start = Date.now();
         try {
-          if (!this._clientManager.isConnected(test.serverId)) {
+          // Resolve the server: prefer exact serverId match, fall back to serverEndpoint match
+          const resolvedServerId = this._resolveServerId(test.serverId, test.serverEndpoint);
+          if (!resolvedServerId) {
+            this._post({ type: 'testRunResult', requestId, result: { testId: test.id, status: 'error', durationMs: 0, message: `Server "${test.serverId}" not found locally${test.serverEndpoint ? ` (endpoint: ${test.serverEndpoint})` : ''}. Add and connect the server first.` } });
+            break;
+          }
+          if (!this._clientManager.isConnected(resolvedServerId)) {
             this._post({ type: 'testRunResult', requestId, result: { testId: test.id, status: 'error', durationMs: 0, message: 'Server is not connected. Connect to the server first.' } });
             break;
           }
-          const mcpResult = await this._clientManager.callTool(test.serverId, test.toolName, test.args);
+          const mcpResult = await this._clientManager.callTool(resolvedServerId, test.toolName, test.args);
           const durationMs = Date.now() - start;
           const evalResult = _evaluateAssertion(test.assertion, mcpResult.content, mcpResult.isError === true);
           this._post({ type: 'testRunResult', requestId, result: { testId: test.id, status: evalResult.pass ? 'pass' : 'fail', durationMs, actual: mcpResult.content, message: evalResult.message } });
@@ -253,6 +269,26 @@ export class McpToolExplorerPanel {
   private _getTestFilePath(): string | undefined {
     const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     return folder ? path.join(folder, '.mcp-tests.json') : undefined;
+  }
+
+  /**
+   * Resolve a serverId from a test case.
+   * 1. If serverId exists in the known server map → use it directly.
+   * 2. Otherwise fall back to matching serverEndpoint against known server urls/commands.
+   * Returns undefined if no server matches.
+   */
+  private _resolveServerId(serverId: string, serverEndpoint?: string): string | undefined {
+    if (this._servers.has(serverId)) return serverId;
+    if (!serverEndpoint) return undefined;
+    const needle = serverEndpoint.trim();
+    for (const [id, cfg] of this._servers) {
+      if (cfg.url && cfg.url.trim() === needle) return id;
+      if (cfg.command) {
+        const cmdString = [cfg.command, ...(cfg.args ?? [])].join(' ').trim();
+        if (cmdString === needle) return id;
+      }
+    }
+    return undefined;
   }
 
   private async _loadAndSendTests(): Promise<void> {

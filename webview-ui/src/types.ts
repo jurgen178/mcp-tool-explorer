@@ -98,6 +98,9 @@ export interface TestCase {
   id: string;
   name: string;
   serverId: string;
+  /** Server endpoint for portability: URL for http/sse servers, or the command string for stdio.
+   * Used as fallback when serverId is not found in the local MCP config. */
+  serverEndpoint?: string;
   toolName: string;
   args: Record<string, unknown>;
   assertion: TestAssertion;
