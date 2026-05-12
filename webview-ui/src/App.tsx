@@ -3,6 +3,7 @@ import { postMessage } from './vscode';
 import type {
   McpEventEntry, McpServerConfig, McpServerDetails, McpTool, McpResource, McpPrompt,
   MessageToWebview, ConnectionStatus, RequestEntry, RequestInfo, HistoryEntry, CapabilityKind, CapabilityLoadState,
+  TestCase, TestRunResult,
 } from './types';
 import Sidebar from './components/Sidebar';
 import ToolsPanel from './components/ToolsPanel';
@@ -11,6 +12,7 @@ import PromptsPanel from './components/PromptsPanel';
 import HistoryPanel from './components/HistoryPanel';
 import ConnectionLogPanel from './components/ConnectionLogPanel';
 import EventsPanel from './components/EventsPanel';
+import TestsPanel from './components/TestsPanel';
 import AddServerModal from './components/AddServerModal';
 import CopyButton from './components/CopyButton';
 
@@ -56,7 +58,7 @@ interface AppState {
   serverEvents: Record<string, McpEventEntry[]>;
   capabilityLoadState: CapabilityLoadStateByKind;
   selectedServerId: string | null;
-  activeTab: 'tools' | 'resources' | 'prompts' | 'history' | 'events' | 'log';
+  activeTab: 'tools' | 'resources' | 'prompts' | 'history' | 'events' | 'log' | 'tests';
   tools: Record<string, McpTool[]>;
   resources: Record<string, McpResource[]>;
   prompts: Record<string, McpPrompt[]>;
@@ -65,6 +67,9 @@ interface AppState {
   connectionLogs: Record<string, ConnectionLogEntry[]>;
   showAddServer: boolean;
   editingServer: McpServerConfig | null;
+  tests: TestCase[];
+  testResults: Record<string, TestRunResult>;
+  runningTestIds: string[];
 }
 
 type Action =
@@ -86,7 +91,7 @@ type Action =
   | { type: 'REQUEST_DONE'; requestId: string; data: unknown; isError: boolean }
   | { type: 'REQUEST_STARTED'; requestId: string }
   | { type: 'SELECT_SERVER'; serverId: string }
-  | { type: 'SELECT_TAB'; tab: 'tools' | 'resources' | 'prompts' | 'history' | 'events' | 'log' }
+  | { type: 'SELECT_TAB'; tab: 'tools' | 'resources' | 'prompts' | 'history' | 'events' | 'log' | 'tests' }
   | { type: 'SHOW_ADD_SERVER'; show: boolean }
   | { type: 'SHOW_EDIT_SERVER'; server: McpServerConfig | null }
   | { type: 'EXT_ERROR'; message: string; requestId?: string }
@@ -94,7 +99,10 @@ type Action =
   | { type: 'CONNECTION_LOG_CLEAR'; serverId: string }
   | { type: 'HISTORY_ADD'; entry: HistoryEntry }
   | { type: 'HISTORY_UPDATE'; id: string; status: 'done' | 'error'; result?: unknown; isError?: boolean }
-  | { type: 'HISTORY_CLEAR'; serverId: string };
+  | { type: 'HISTORY_CLEAR'; serverId: string }
+  | { type: 'TESTS_LOADED'; tests: TestCase[] }
+  | { type: 'TEST_RESULT'; result: TestRunResult; requestId: string }
+  | { type: 'TEST_RUN_START'; testId: string; requestId: string };
 
 const initialState: AppState = {
   servers: [],
@@ -118,6 +126,9 @@ const initialState: AppState = {
   connectionLogs: {},
   showAddServer: false,
   editingServer: null,
+  tests: [],
+  testResults: {},
+  runningTestIds: [],
 };
 
 function setCapabilityState(
@@ -352,6 +363,19 @@ function reducer(state: AppState, action: Action): AppState {
     case 'HISTORY_CLEAR':
       return { ...state, history: state.history.filter(e => e.serverId !== action.serverId) };
 
+    case 'TESTS_LOADED':
+      return { ...state, tests: action.tests };
+
+    case 'TEST_RUN_START':
+      return { ...state, runningTestIds: [...state.runningTestIds.filter(id => id !== action.testId), action.testId] };
+
+    case 'TEST_RESULT':
+      return {
+        ...state,
+        testResults: { ...state.testResults, [action.result.testId]: action.result },
+        runningTestIds: state.runningTestIds.filter(id => id !== action.result.testId),
+      };
+
     case 'CONNECTION_LOG': {
       const existing = state.connectionLogs[action.serverId] ?? [];
       return {
@@ -429,6 +453,12 @@ export default function App() {
             dispatch({ type: 'HISTORY_UPDATE', id: msg.requestId, status: 'error', result: msg.message, isError: true });
           }
           break;
+        case 'testsLoaded':
+          dispatch({ type: 'TESTS_LOADED', tests: msg.tests });
+          break;
+        case 'testRunResult':
+          dispatch({ type: 'TEST_RESULT', result: msg.result, requestId: msg.requestId });
+          break;
       }
     };
     window.addEventListener('message', handler);
@@ -499,7 +529,30 @@ export default function App() {
 
   const [pendingRerun, setPendingRerun] = React.useState<{ serverId: string | null; toolName: string; args: unknown } | null>(null);
 
-  // ── Sidebar resize ───────────────────────────────────────────────────────
+  let testReqCounter = 0;
+  const nextTestReqId = () => `testrun-${Date.now()}-${++testReqCounter}`;
+
+  const handleSaveTests = (tests: typeof state.tests) => {
+    dispatch({ type: 'TESTS_LOADED', tests });
+    postMessage({ type: 'saveTests', tests });
+  };
+
+  const handleRunTest = (test: (typeof state.tests)[0]) => {
+    const requestId = nextTestReqId();
+    dispatch({ type: 'TEST_RUN_START', testId: test.id, requestId });
+    postMessage({ type: 'runTest', test, requestId });
+  };
+
+  const handleRunAllTests = () => {
+    const testsToRun = state.tests.filter(t => !state.runningTestIds.includes(t.id));
+    for (const test of testsToRun) {
+      const requestId = nextTestReqId();
+      dispatch({ type: 'TEST_RUN_START', testId: test.id, requestId });
+      postMessage({ type: 'runTest', test, requestId });
+    }
+  };
+
+
 
   const sidebarWrapperRef = useRef<HTMLDivElement>(null);
   const sidebarHandleRef = useRef<HTMLDivElement>(null);
@@ -713,6 +766,12 @@ export default function App() {
                   </div>
                 );
               })()}
+              <div
+                className={`tab${state.activeTab === 'tests' ? ' active' : ''}`}
+                onClick={() => dispatch({ type: 'SELECT_TAB', tab: 'tests' })}
+              >
+                Tests{state.tests.length > 0 ? ` (${state.tests.length})` : ''}
+              </div>
             </div>
 
             {/* Tab content */}
@@ -770,6 +829,19 @@ export default function App() {
               <ConnectionLogPanel
                 logs={state.connectionLogs[selectedServer.id] ?? []}
                 onClear={() => dispatch({ type: 'CONNECTION_LOG_CLEAR', serverId: selectedServer.id })}
+              />
+            )}
+            {state.activeTab === 'tests' && (
+              <TestsPanel
+                tests={state.tests}
+                servers={state.servers}
+                serverStatus={state.serverStatus}
+                tools={state.tools}
+                testResults={state.testResults}
+                runningTestIds={state.runningTestIds}
+                onSave={handleSaveTests}
+                onRun={handleRunTest}
+                onRunAll={handleRunAllTests}
               />
             )}
           </>

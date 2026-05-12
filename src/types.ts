@@ -84,6 +84,37 @@ export interface McpEventEntry {
 
 export type CapabilityKind = 'tools' | 'resources' | 'prompts';
 
+// ── Test Cases ────────────────────────────────────────────────────────────────
+
+export type TestAssertionType = 'no-error' | 'contains' | 'equals' | 'json-path';
+
+export interface TestAssertion {
+  type: TestAssertionType;
+  /** Expected value (string or JSON text) for 'contains' and 'equals'. */
+  expected?: string;
+  /** Dot-notation path for 'json-path'. */
+  path?: string;
+  /** Expected value at path for 'json-path'. */
+  pathExpected?: string;
+}
+
+export interface TestCase {
+  id: string;
+  name: string;
+  serverId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  assertion: TestAssertion;
+}
+
+export interface TestRunResult {
+  testId: string;
+  status: 'pass' | 'fail' | 'error';
+  durationMs: number;
+  actual?: unknown;
+  message?: string;
+}
+
 // ── Messages: Webview → Extension ──────────────────────────────────────────
 
 export type MessageToExtension =
@@ -99,7 +130,10 @@ export type MessageToExtension =
   | { type: 'getPrompt'; serverId: string; promptName: string; args: Record<string, string>; requestId: string }
   | { type: 'addServer'; config: Omit<McpServerConfig, 'id' | 'source'> }
   | { type: 'updateServer'; serverId: string; config: Omit<McpServerConfig, 'id' | 'source'> }
-  | { type: 'removeServer'; serverId: string };
+  | { type: 'removeServer'; serverId: string }
+  | { type: 'loadTests' }
+  | { type: 'saveTests'; tests: TestCase[] }
+  | { type: 'runTest'; test: TestCase; requestId: string };
 
 // ── Messages: Extension → Webview ──────────────────────────────────────────
 
@@ -122,4 +156,6 @@ export type MessageToWebview =
   | { type: 'promptArgumentCompletion'; requestId: string; argumentName: string; values: string[] }
   | { type: 'promptContent'; requestId: string; content: unknown }
   | { type: 'connectionLog'; serverId: string; log: { timestamp: number; level: 'info' | 'warn' | 'error'; message: string; detail?: string | { kind: string; content: string }[] } }
+  | { type: 'testsLoaded'; tests: TestCase[] }
+  | { type: 'testRunResult'; requestId: string; result: TestRunResult }
   | { type: 'error'; message: string; requestId?: string };

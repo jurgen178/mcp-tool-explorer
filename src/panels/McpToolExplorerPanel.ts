@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { McpClientManager } from '../mcp/McpClientManager';
 import { McpConfigDiscovery } from '../mcp/McpConfigDiscovery';
-import type { CapabilityKind, McpServerConfig, MessageToExtension, MessageToWebview } from '../types';
+import type { CapabilityKind, McpServerConfig, MessageToExtension, MessageToWebview, TestAssertion, TestRunResult } from '../types';
 
 export class McpToolExplorerPanel {
   public static currentPanel: McpToolExplorerPanel | undefined;
@@ -64,6 +64,13 @@ export class McpToolExplorerPanel {
     );
 
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
+
+    // Watch for external changes to the test file
+    const testWatcher = vscode.workspace.createFileSystemWatcher('**/.mcp-tests.json');
+    testWatcher.onDidChange(() => this._loadAndSendTests(), null, this._disposables);
+    testWatcher.onDidCreate(() => this._loadAndSendTests(), null, this._disposables);
+    testWatcher.onDidDelete(() => this._post({ type: 'testsLoaded', tests: [] }), null, this._disposables);
+    this._disposables.push(testWatcher);
   }
 
   // ── Message handling ──────────────────────────────────────────────────────
@@ -85,6 +92,7 @@ export class McpToolExplorerPanel {
     switch (message.type) {
       case 'getServers': {
         await this._sendServers();
+        await this._loadAndSendTests();
         break;
       }
 
@@ -207,11 +215,60 @@ export class McpToolExplorerPanel {
         this._post({ type: 'serverRemoved', serverId: message.serverId });
         break;
       }
+
+      case 'loadTests': {
+        await this._loadAndSendTests();
+        break;
+      }
+
+      case 'saveTests': {
+        const filePath = this._getTestFilePath();
+        if (!filePath) { break; }
+        fs.writeFileSync(filePath, JSON.stringify(message.tests, null, 2), 'utf-8');
+        break;
+      }
+
+      case 'runTest': {
+        const { test, requestId } = message;
+        const start = Date.now();
+        try {
+          if (!this._clientManager.isConnected(test.serverId)) {
+            this._post({ type: 'testRunResult', requestId, result: { testId: test.id, status: 'error', durationMs: 0, message: 'Server is not connected. Connect to the server first.' } });
+            break;
+          }
+          const mcpResult = await this._clientManager.callTool(test.serverId, test.toolName, test.args);
+          const durationMs = Date.now() - start;
+          const evalResult = _evaluateAssertion(test.assertion, mcpResult.content, mcpResult.isError === true);
+          this._post({ type: 'testRunResult', requestId, result: { testId: test.id, status: evalResult.pass ? 'pass' : 'fail', durationMs, actual: mcpResult.content, message: evalResult.message } });
+        } catch (e: unknown) {
+          const durationMs = Date.now() - start;
+          this._post({ type: 'testRunResult', requestId, result: { testId: test.id, status: 'error', durationMs, message: e instanceof Error ? e.message : String(e) } });
+        }
+        break;
+      }
     }
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
+  private _getTestFilePath(): string | undefined {
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return folder ? path.join(folder, '.mcp-tests.json') : undefined;
+  }
 
+  private async _loadAndSendTests(): Promise<void> {
+    const filePath = this._getTestFilePath();
+    if (!filePath || !fs.existsSync(filePath)) {
+      this._post({ type: 'testsLoaded', tests: [] });
+      return;
+    }
+    try {
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      const tests = JSON.parse(raw);
+      this._post({ type: 'testsLoaded', tests: Array.isArray(tests) ? tests : [] });
+    } catch {
+      this._post({ type: 'testsLoaded', tests: [] });
+    }
+  }
   private async _sendServers(): Promise<void> {
     const servers = await this._configDiscovery.discoverServers();
     this._servers.clear();
@@ -340,4 +397,61 @@ export class McpToolExplorerPanel {
       this._disposables.pop()?.dispose();
     }
   }
+}
+
+// ── Test assertion evaluation (module-level) ──────────────────────────────────
+
+function _evaluateAssertion(
+  assertion: TestAssertion,
+  actual: unknown,
+  isError: boolean,
+): { pass: boolean; message?: string } {
+  switch (assertion.type) {
+    case 'no-error':
+      return isError
+        ? { pass: false, message: 'Tool returned an error' }
+        : { pass: true };
+
+    case 'contains': {
+      const text = JSON.stringify(actual);
+      const expected = assertion.expected ?? '';
+      return text.includes(expected)
+        ? { pass: true }
+        : { pass: false, message: `Expected output to contain: ${expected}` };
+    }
+
+    case 'equals': {
+      let expectedParsed: unknown;
+      try { expectedParsed = JSON.parse(assertion.expected ?? 'null'); }
+      catch { return { pass: false, message: 'Expected value is not valid JSON' }; }
+      const actualStr = JSON.stringify(actual);
+      const expectedStr = JSON.stringify(expectedParsed);
+      return actualStr === expectedStr
+        ? { pass: true }
+        : { pass: false, message: `Expected:\n${expectedStr}\n\nGot:\n${actualStr}` };
+    }
+
+    case 'json-path': {
+      const value = _getJsonPath(actual, assertion.path ?? '');
+      const expectedStr = assertion.pathExpected ?? '';
+      const actualStr = typeof value === 'string' ? value : JSON.stringify(value);
+      return actualStr === expectedStr || JSON.stringify(value) === expectedStr
+        ? { pass: true }
+        : { pass: false, message: `At path "${assertion.path}": expected "${expectedStr}", got "${actualStr}"` };
+    }
+
+    default:
+      return { pass: false, message: 'Unknown assertion type' };
+  }
+}
+
+function _getJsonPath(obj: unknown, dotPath: string): unknown {
+  if (!dotPath) return obj;
+  const parts = dotPath.replace(/\[(\d+)\]/g, '.$1').split('.').filter(Boolean);
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current === null || current === undefined) return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
 }
