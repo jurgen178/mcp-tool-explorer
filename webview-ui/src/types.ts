@@ -155,6 +155,7 @@ export type MessageToExtension =
   | { type: 'addServer'; config: Omit<McpServerConfig, 'id' | 'source'> }
   | { type: 'updateServer'; serverId: string; config: Omit<McpServerConfig, 'id' | 'source'> }
   | { type: 'removeServer'; serverId: string }
+  | { type: 'cancelConnect'; serverId: string }
   | { type: 'loadTests' }
   | { type: 'saveTests'; tests: TestCase[]; variables: Record<string, string> }
   | { type: 'runTest'; test: TestCase; requestId: string; variables: Record<string, string> };

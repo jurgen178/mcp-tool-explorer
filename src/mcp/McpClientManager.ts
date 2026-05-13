@@ -40,6 +40,7 @@ interface RecentEventGroup {
 
 export class McpClientManager {
   private readonly _connections = new Map<string, ActiveConnection>();
+  private readonly _pendingConnects = new Map<string, AbortController>();
   private readonly _version: string;
   /** Log listeners are tracked per server so concurrent connections stay isolated. */
   private readonly _logListeners = new Map<string, (entry: ConnectionLogEntry) => void>();
@@ -318,7 +319,15 @@ export class McpClientManager {
     return this._connections.has(serverId);
   }
 
+  cancelConnect(serverId: string): void {
+    this._pendingConnects.get(serverId)?.abort();
+    this._pendingConnects.delete(serverId);
+  }
+
   async connect(config: McpServerConfig): Promise<void> {
+    // Cancel any in-progress connect attempt for this server
+    this.cancelConnect(config.id);
+
     // Disconnect first if already connected
     if (this._connections.has(config.id)) {
       await this.disconnect(config.id);
@@ -340,6 +349,13 @@ export class McpClientManager {
 
     const transport = this._createTransport(config);
 
+    // Set up AbortController so the user can cancel a hanging connect
+    const controller = new AbortController();
+    this._pendingConnects.set(config.id, controller);
+    const abortPromise = new Promise<never>((_, reject) => {
+      controller.signal.addEventListener('abort', () => reject(new Error('Connection cancelled')), { once: true });
+    });
+
     // Collect stderr so "Connection closed" errors include the real reason
     let stderrOutput = '';
     if (config.type === 'stdio') {
@@ -353,9 +369,17 @@ export class McpClientManager {
 
     try {
       this._log(config.id, 'info', `Attempting ${config.type.toUpperCase()} transport`);
-      await this._measure(config.id, `Connect ${config.type.toUpperCase()} transport`, () => client.connect(transport));
+      await Promise.race([
+        this._measure(config.id, `Connect ${config.type.toUpperCase()} transport`, () => client.connect(transport)),
+        abortPromise,
+      ]);
       this._log(config.id, 'info', `Connected successfully via ${config.type.toUpperCase()}`);
     } catch (e: unknown) {
+      if (controller.signal.aborted) {
+        try { await client.close(); } catch { /* ignore */ }
+        this._pendingConnects.delete(config.id);
+        throw new Error('Connection cancelled');
+      }
       const baseMsg = e instanceof Error ? e.message : String(e);
       const stack = e instanceof Error ? e.stack : undefined;
       this._log(config.id, 'error', `${config.type.toUpperCase()} transport failed`, [baseMsg, stack ? `Stack: ${stack}` : ''].filter(Boolean).join('\n'));
@@ -372,12 +396,21 @@ export class McpClientManager {
         this._registerNotificationHandlers(sseClient, config.id);
         const sseTransport = this._createTransport({ ...config, type: 'sse' });
         try {
-          await this._measure(config.id, 'Connect SSE transport fallback', () => sseClient.connect(sseTransport));
+          await Promise.race([
+            this._measure(config.id, 'Connect SSE transport fallback', () => sseClient.connect(sseTransport)),
+            abortPromise,
+          ]);
           this._log(config.id, 'info', 'Connected successfully via SSE');
+          this._pendingConnects.delete(config.id);
           this._connections.set(config.id, { client: sseClient, config });
           await this._setLoggingLevelIfSupported(config.id, sseClient);
           return;
         } catch (e2: unknown) {
+          if (controller.signal.aborted) {
+            try { await sseClient.close(); } catch { /* ignore */ }
+            this._pendingConnects.delete(config.id);
+            throw new Error('Connection cancelled');
+          }
           try { await sseClient.close(); } catch { /* ensure EventSource is stopped */ }
           const sseMsg = e2 instanceof Error ? e2.message : String(e2);
           this._log(config.id, 'error', 'SSE transport also failed', sseMsg);
@@ -391,6 +424,7 @@ export class McpClientManager {
       throw new Error(fullError);
     }
 
+    this._pendingConnects.delete(config.id);
     this._connections.set(config.id, { client, config });
     await this._setLoggingLevelIfSupported(config.id, client);
   }

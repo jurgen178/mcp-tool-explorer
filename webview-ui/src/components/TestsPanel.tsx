@@ -35,33 +35,74 @@ function emptyTest(serverId: string, toolName: string, group?: string): TestCase
 
 // ── Shared form helpers (mirrored from ToolsPanel) ──────────────────────────
 
-function buildArgs(tool: McpTool, values: Record<string, string>): Record<string, unknown> {
+function buildObject(props: Record<string, SchemaProperty>, values: Record<string, string>, prefix: string): Record<string, unknown> {
   const args: Record<string, unknown> = {};
-  const props = tool.inputSchema?.properties ?? {};
   for (const [key, schema] of Object.entries(props)) {
-    const val = values[key];
-    if (val === undefined || val === '') continue;
-    if (schema.type === 'number' || schema.type === 'integer') args[key] = Number(val);
-    else if (schema.type === 'boolean') args[key] = val === 'true';
-    else args[key] = val;
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (schema.type === 'object' && schema.properties) {
+      const nested = buildObject(schema.properties as Record<string, SchemaProperty>, values, path);
+      if (Object.keys(nested).length > 0) args[key] = nested;
+    } else {
+      const val = values[path];
+      if (val === undefined || val === '') continue;
+      if (schema.type === 'number' || schema.type === 'integer') args[key] = Number(val);
+      else if (schema.type === 'boolean') args[key] = val === 'true';
+      else if (schema.type === 'array') {
+        try { args[key] = JSON.parse(val); } catch { args[key] = val; }
+      } else args[key] = val;
+    }
   }
   return args;
+}
+
+function buildArgs(tool: McpTool, values: Record<string, string>): Record<string, unknown> {
+  return buildObject(tool.inputSchema?.properties ?? {}, values, '');
+}
+
+function flattenArgs(obj: Record<string, unknown>, props: Record<string, SchemaProperty>, prefix: string): Record<string, string> {
+  const fv: Record<string, string> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    const path = prefix ? `${prefix}.${k}` : k;
+    const schema = props[k];
+    if (schema?.type === 'object' && schema.properties && typeof v === 'object' && v !== null && !Array.isArray(v)) {
+      Object.assign(fv, flattenArgs(v as Record<string, unknown>, schema.properties as Record<string, SchemaProperty>, path));
+    } else {
+      fv[path] = typeof v === 'object' ? JSON.stringify(v) : String(v ?? '');
+    }
+  }
+  return fv;
 }
 
 function toFieldId(prefix: string, name: string) {
   return `${prefix}-${name.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 }
 
-function FieldInput({ name, schema, isRequired, value, onChange }: {
-  name: string; schema: SchemaProperty; isRequired: boolean; value: string; onChange: (v: string) => void;
+function FieldInput({ name, schema, isRequired, values, path, onChange }: {
+  name: string; schema: SchemaProperty; isRequired: boolean; values: Record<string, string>; path: string; onChange: (path: string, val: string) => void;
 }) {
-  const fieldId = toFieldId('test-field', name);
+  const fieldId = toFieldId('test-field', path);
+  const value = values[path] ?? '';
   const label = <label className="form-label" htmlFor={fieldId}>{name}{isRequired && <span className="req">*</span>}</label>;
+
+  if (schema.type === 'object' && schema.properties) {
+    const nestedRequired = (schema as InputSchema).required ?? [];
+    return (
+      <div className="form-group-object">
+        <div className="form-group-object-label">{name}{isRequired && <span className="req">*</span>}</div>
+        <div className="form-group-object-fields">
+          {Object.entries(schema.properties).map(([k, s]) => (
+            <FieldInput key={k} name={k} schema={s as SchemaProperty} isRequired={nestedRequired.includes(k)}
+              values={values} path={`${path}.${k}`} onChange={onChange} />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (schema.type === 'boolean') return (
     <div className="form-group">
       {label}
-      <select id={fieldId} className="form-select form-select-auto" value={value} onChange={e => onChange(e.target.value)} title={name}>
+      <select id={fieldId} className="form-select form-select-auto" value={value} onChange={e => onChange(path, e.target.value)} title={name}>
         <option value="">(unset)</option><option value="true">true</option><option value="false">false</option>
       </select>
       {schema.description && <div className="form-hint">{schema.description}</div>}
@@ -71,7 +112,7 @@ function FieldInput({ name, schema, isRequired, value, onChange }: {
   if (schema.enum) return (
     <div className="form-group">
       {label}
-      <select id={fieldId} className="form-select" value={value} onChange={e => onChange(e.target.value)} title={name}>
+      <select id={fieldId} className="form-select" value={value} onChange={e => onChange(path, e.target.value)} title={name}>
         <option value="">(select)</option>
         {schema.enum.map((v, i) => <option key={i} value={String(v)}>{String(v)}</option>)}
       </select>
@@ -79,13 +120,13 @@ function FieldInput({ name, schema, isRequired, value, onChange }: {
     </div>
   );
 
-  const isMultiline = schema.type === 'array' || schema.type === 'object' || !schema.type;
+  const isMultiline = schema.type === 'array' || !schema.type;
   return (
     <div className="form-group">
       {label}
       {isMultiline
-        ? <textarea id={fieldId} className="form-textarea" value={value} onChange={e => onChange(e.target.value)} placeholder={schema.type === 'array' ? '["item1"]' : '{"key":"value"}'} rows={3} title={name} />
-        : <input id={fieldId} className="form-input" type={schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text'} value={value} onChange={e => onChange(e.target.value)} placeholder={String(schema.default ?? '')} title={name} />
+        ? <textarea id={fieldId} className="form-textarea" value={value} onChange={e => onChange(path, e.target.value)} placeholder={schema.type === 'array' ? '["item1"]' : '{"key":"value"}'} rows={3} title={name} />
+        : <input id={fieldId} className="form-input" type={schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text'} value={value} onChange={e => onChange(path, e.target.value)} placeholder={String(schema.default ?? '')} title={name} />
       }
       {schema.description && <div className="form-hint">{schema.description}</div>}
     </div>
@@ -100,11 +141,11 @@ function ToolForm({ tool, values, onChange }: {
   const props = (tool.inputSchema as InputSchema)?.properties ?? {};
   const required = (tool.inputSchema as InputSchema)?.required ?? [];
   if (Object.keys(props).length === 0) return <p className="form-note">No parameters.</p>;
-  const set = (key: string, val: string) => onChange(prev => ({ ...prev, [key]: val }));
+  const set = (path: string, val: string) => onChange(prev => ({ ...prev, [path]: val }));
   return (
     <>
       {Object.entries(props).map(([key, schema]) => (
-        <FieldInput key={key} name={key} schema={schema} isRequired={required.includes(key)} value={values[key] ?? ''} onChange={val => set(key, val)} />
+        <FieldInput key={key} name={key} schema={schema} isRequired={required.includes(key)} values={values} path={key} onChange={set} />
       ))}
     </>
   );
@@ -390,10 +431,7 @@ function TestEditor({ test, servers, serverStatus, tools, history, allGroups, re
       // JSON → Form: populate form values from current JSON
       try {
         const parsed = JSON.parse(argsJson) as Record<string, unknown>;
-        const fv: Record<string, string> = {};
-        for (const [k, v] of Object.entries(parsed)) {
-          fv[k] = typeof v === 'object' ? JSON.stringify(v) : String(v);
-        }
+        const fv = flattenArgs(parsed, selectedTool?.inputSchema?.properties ?? {}, '');
         setFormValues(fv);
         setArgsError(null);
       } catch { return; } // stay in JSON mode on parse error

@@ -123,9 +123,18 @@ export class McpToolExplorerPanel {
           });
           await this._loadCapabilities(message.serverId);
         } catch (e: unknown) {
-          const error = e instanceof Error ? e.message : String(e);
-          this._post({ type: 'connectionError', serverId: message.serverId, error });
+          if (e instanceof Error && e.message === 'Connection cancelled') {
+            this._post({ type: 'disconnected', serverId: message.serverId });
+          } else {
+            const error = e instanceof Error ? e.message : String(e);
+            this._post({ type: 'connectionError', serverId: message.serverId, error });
+          }
         }
+        break;
+      }
+
+      case 'cancelConnect': {
+        this._clientManager.cancelConnect(message.serverId);
         break;
       }
 

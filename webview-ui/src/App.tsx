@@ -484,6 +484,10 @@ export default function App() {
     postMessage({ type: 'disconnect', serverId });
   };
 
+  const handleCancelConnect = (serverId: string) => {
+    postMessage({ type: 'cancelConnect', serverId });
+  };
+
   const handleSelectServer = (serverId: string) => {
     dispatch({ type: 'SELECT_SERVER', serverId });
   };
@@ -716,6 +720,10 @@ export default function App() {
                 {selectedStatus === 'disconnected' || selectedStatus === 'error' ? (
                   <button className="btn btn-primary server-header-action" onClick={() => handleConnect(selectedServer.id)}>
                     Connect
+                  </button>
+                ) : selectedStatus === 'connecting' ? (
+                  <button className="btn btn-secondary server-header-action" onClick={() => handleCancelConnect(selectedServer.id)}>
+                    Cancel
                   </button>
                 ) : selectedStatus === 'connected' ? (
                   <button className="btn btn-secondary server-header-action" onClick={() => handleDisconnect(selectedServer.id)}>

@@ -300,19 +300,28 @@ export default function ToolsPanel({
 
 // ── ToolForm ──────────────────────────────────────────────────────────────────
 
-function buildArgs(tool: McpTool, values: Record<string, string>): Record<string, unknown> {
+function buildObject(props: Record<string, SchemaProperty>, values: Record<string, string>, prefix: string): Record<string, unknown> {
   const args: Record<string, unknown> = {};
-  const props = tool.inputSchema?.properties ?? {};
   for (const [key, schema] of Object.entries(props)) {
-    const val = values[key];
-    if (val === undefined || val === '') continue;
-    // Form mode only does lightweight scalar coercion. Nested objects and arrays
-    // are expected to come from the dedicated JSON input mode.
-    if (schema.type === 'number' || schema.type === 'integer') args[key] = Number(val);
-    else if (schema.type === 'boolean') args[key] = val === 'true';
-    else args[key] = val;
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (schema.type === 'object' && schema.properties) {
+      const nested = buildObject(schema.properties as Record<string, SchemaProperty>, values, path);
+      if (Object.keys(nested).length > 0) args[key] = nested;
+    } else {
+      const val = values[path];
+      if (val === undefined || val === '') continue;
+      if (schema.type === 'number' || schema.type === 'integer') args[key] = Number(val);
+      else if (schema.type === 'boolean') args[key] = val === 'true';
+      else if (schema.type === 'array') {
+        try { args[key] = JSON.parse(val); } catch { args[key] = val; }
+      } else args[key] = val;
+    }
   }
   return args;
+}
+
+function buildArgs(tool: McpTool, values: Record<string, string>): Record<string, unknown> {
+  return buildObject(tool.inputSchema?.properties ?? {}, values, '');
 }
 
 interface ToolFormProps {
@@ -327,26 +336,42 @@ function ToolForm({ tool, values, onChange }: ToolFormProps) {
   if (Object.keys(props).length === 0) {
     return <p className="form-note">No parameters.</p>;
   }
-  const set = (key: string, val: string) => onChange(prev => ({ ...prev, [key]: val }));
+  const set = (path: string, val: string) => onChange(prev => ({ ...prev, [path]: val }));
   return (
     <>
       {Object.entries(props).map(([key, schema]) => (
-        <FieldInput key={key} name={key} schema={schema} isRequired={required.includes(key)} value={values[key] ?? ''} onChange={val => set(key, val)} />
+        <FieldInput key={key} name={key} schema={schema} isRequired={required.includes(key)} values={values} path={key} onChange={set} />
       ))}
     </>
   );
 }
 
-interface FieldInputProps { name: string; schema: SchemaProperty; isRequired: boolean; value: string; onChange: (v: string) => void; }
+interface FieldInputProps { name: string; schema: SchemaProperty; isRequired: boolean; values: Record<string, string>; path: string; onChange: (path: string, val: string) => void; }
 
-function FieldInput({ name, schema, isRequired, value, onChange }: FieldInputProps) {
-  const fieldId = toFieldId('tool-field', name);
+function FieldInput({ name, schema, isRequired, values, path, onChange }: FieldInputProps) {
+  const fieldId = toFieldId('tool-field', path);
+  const value = values[path] ?? '';
   const label = <label className="form-label" htmlFor={fieldId}>{name}{isRequired && <span className="req">*</span>}</label>;
+
+  if (schema.type === 'object' && schema.properties) {
+    const nestedRequired = (schema as InputSchema).required ?? [];
+    return (
+      <div className="form-group-object">
+        <div className="form-group-object-label">{name}{isRequired && <span className="req">*</span>}</div>
+        <div className="form-group-object-fields">
+          {Object.entries(schema.properties).map(([k, s]) => (
+            <FieldInput key={k} name={k} schema={s as SchemaProperty} isRequired={nestedRequired.includes(k)}
+              values={values} path={`${path}.${k}`} onChange={onChange} />
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (schema.type === 'boolean') return (
     <div className="form-group">
       {label}
-      <select id={fieldId} className="form-select form-select-auto" value={value} onChange={e => onChange(e.target.value)} title={name}>
+      <select id={fieldId} className="form-select form-select-auto" value={value} onChange={e => onChange(path, e.target.value)} title={name}>
         <option value="">(unset)</option><option value="true">true</option><option value="false">false</option>
       </select>
       {schema.description && <div className="form-hint">{schema.description}</div>}
@@ -356,7 +381,7 @@ function FieldInput({ name, schema, isRequired, value, onChange }: FieldInputPro
   if (schema.enum) return (
     <div className="form-group">
       {label}
-      <select id={fieldId} className="form-select" value={value} onChange={e => onChange(e.target.value)} title={name}>
+      <select id={fieldId} className="form-select" value={value} onChange={e => onChange(path, e.target.value)} title={name}>
         <option value="">(select)</option>
         {schema.enum.map((v, i) => <option key={i} value={String(v)}>{String(v)}</option>)}
       </select>
@@ -364,13 +389,13 @@ function FieldInput({ name, schema, isRequired, value, onChange }: FieldInputPro
     </div>
   );
 
-  const isMultiline = schema.type === 'array' || schema.type === 'object' || !schema.type;
+  const isMultiline = schema.type === 'array' || !schema.type;
   return (
     <div className="form-group">
       {label}
       {isMultiline
-        ? <textarea id={fieldId} className="form-textarea" value={value} onChange={e => onChange(e.target.value)} placeholder={schema.type === 'array' ? '["item1","item2"]' : '{"key":"value"}'} rows={3} title={name} />
-        : <input id={fieldId} className="form-input" type={schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text'} value={value} onChange={e => onChange(e.target.value)} placeholder={String(schema.default ?? '')} title={name} />
+        ? <textarea id={fieldId} className="form-textarea" value={value} onChange={e => onChange(path, e.target.value)} placeholder={schema.type === 'array' ? '["item1","item2"]' : '{"key":"value"}'} rows={3} title={name} />
+        : <input id={fieldId} className="form-input" type={schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text'} value={value} onChange={e => onChange(path, e.target.value)} placeholder={String(schema.default ?? '')} title={name} />
       }
       {schema.description && <div className="form-hint">{schema.description}</div>}
     </div>
