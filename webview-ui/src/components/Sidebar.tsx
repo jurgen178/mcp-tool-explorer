@@ -105,11 +105,11 @@ export default function Sidebar({
               <span className={`dot dot-${status}`} />
               <div className="server-meta">
                 <span className="server-name">{server.name}</span>
-                {status === 'connected' && (
+                {status === 'connected' && (capabilitySupport.tools === true || capabilitySupport.resources === true || capabilitySupport.prompts === true) && (
                   <div className="server-capabilities" aria-label="Supported capabilities">
-                    <span className={`server-capability${capabilitySupport.tools === true ? ' is-supported' : capabilitySupport.tools === false ? ' is-unsupported' : ' is-unknown'}`}>T</span>
-                    <span className={`server-capability${capabilitySupport.resources === true ? ' is-supported' : capabilitySupport.resources === false ? ' is-unsupported' : ' is-unknown'}`}>R</span>
-                    <span className={`server-capability${capabilitySupport.prompts === true ? ' is-supported' : capabilitySupport.prompts === false ? ' is-unsupported' : ' is-unknown'}`}>P</span>
+                    {capabilitySupport.tools === true && <span className="server-capability is-supported">T</span>}
+                    {capabilitySupport.resources === true && <span className="server-capability is-supported">R</span>}
+                    {capabilitySupport.prompts === true && <span className="server-capability is-supported">P</span>}
                   </div>
                 )}
               </div>
