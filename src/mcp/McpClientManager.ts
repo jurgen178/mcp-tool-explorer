@@ -632,7 +632,7 @@ export class McpClientManager {
 
   private _supportsCapability(serverId: string, capability: 'tools' | 'resources' | 'prompts' | 'completions'): boolean {
     const capabilities = this._client(serverId).getServerCapabilities();
-    if (!capabilities) return true;
+    if (!capabilities) return false;
     return capabilities[capability] !== undefined;
   }
 

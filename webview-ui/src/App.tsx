@@ -695,6 +695,11 @@ export default function App() {
           serversLoading={state.serversLoading}
           serverStatus={state.serverStatus}
           serverDetails={state.serverDetails}
+          serverItems={Object.fromEntries(state.servers.map(s => [s.id, {
+            tools: state.tools[s.id]?.length ?? 0,
+            resources: state.resources[s.id]?.length ?? 0,
+            prompts: state.prompts[s.id]?.length ?? 0,
+          }]))}
           selectedServerId={state.selectedServerId}
           onSelect={handleSelectServer}
           onConnect={handleConnect}

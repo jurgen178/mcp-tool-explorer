@@ -12,6 +12,7 @@ interface Props {
   serversLoading: boolean;
   serverStatus: Record<string, ConnectionStatus>;
   serverDetails: Record<string, McpServerDetails | undefined>;
+  serverItems: Record<string, { tools: number; resources: number; prompts: number }>;
   selectedServerId: string | null;
   onSelect: (id: string) => void;
   onConnect: (id: string) => void;
@@ -21,22 +22,22 @@ interface Props {
   onAdd: () => void;
 }
 
-function getCapabilitySupport(details?: McpServerDetails): CapabilitySupport {
+function getCapabilitySupport(details?: McpServerDetails, items?: { tools: number; resources: number; prompts: number }): CapabilitySupport {
   const capabilities = details?.capabilities;
   if (!capabilities) {
     return { tools: null, resources: null, prompts: null };
   }
 
   return {
-    tools: capabilities.tools !== undefined,
-    resources: capabilities.resources !== undefined,
-    prompts: capabilities.prompts !== undefined,
+    tools: capabilities.tools !== undefined ? (items?.tools ?? 0) > 0 : null,
+    resources: capabilities.resources !== undefined ? (items?.resources ?? 0) > 0 : null,
+    prompts: capabilities.prompts !== undefined ? (items?.prompts ?? 0) > 0 : null,
   };
 }
 
-function describeCapability(label: string, supported: boolean | null): string {
-  if (supported === null) return `${label}: unknown`;
-  return `${label}: ${supported ? 'yes' : 'no'}`;
+function describeCapability(label: string, supported: boolean | null): string | null {
+  if (supported === null) return null;
+  return `${label}: ${supported ? 'yes' : 'yes (empty)'}`;
 }
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
@@ -59,18 +60,19 @@ function buildTooltip(server: McpServerConfig, status: ConnectionStatus, details
 
   if (status === 'connected') {
     const capabilitySupport = getCapabilitySupport(details);
-    lines.push(
+    const descs = [
       describeCapability('(T)ools', capabilitySupport.tools),
       describeCapability('(R)esources', capabilitySupport.resources),
       describeCapability('(P)rompts', capabilitySupport.prompts),
-    );
+    ].filter((d): d is string => d !== null);
+    lines.push(...descs);
   }
 
   return lines.join('\n');
 }
 
 export default function Sidebar({
-  servers, serversLoading, serverStatus, serverDetails, selectedServerId,
+  servers, serversLoading, serverStatus, serverDetails, serverItems, selectedServerId,
   onSelect, onConnect, onDisconnect, onRemove, onEdit, onAdd,
 }: Props) {
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
@@ -94,7 +96,7 @@ export default function Sidebar({
         ) : servers.map(server => {
           const status: ConnectionStatus = serverStatus[server.id] ?? 'disconnected';
           const isSelected = server.id === selectedServerId;
-          const capabilitySupport = getCapabilitySupport(serverDetails[server.id]);
+          const capabilitySupport = getCapabilitySupport(serverDetails[server.id], serverItems[server.id]);
           return (
             <div
               key={server.id}
@@ -105,11 +107,11 @@ export default function Sidebar({
               <span className={`dot dot-${status}`} />
               <div className="server-meta">
                 <span className="server-name">{server.name}</span>
-                {status === 'connected' && (capabilitySupport.tools === true || capabilitySupport.resources === true || capabilitySupport.prompts === true) && (
+                {status === 'connected' && (capabilitySupport.tools !== null || capabilitySupport.resources !== null || capabilitySupport.prompts !== null) && (
                   <div className="server-capabilities" aria-label="Supported capabilities">
-                    {capabilitySupport.tools === true && <span className="server-capability is-supported">T</span>}
-                    {capabilitySupport.resources === true && <span className="server-capability is-supported">R</span>}
-                    {capabilitySupport.prompts === true && <span className="server-capability is-supported">P</span>}
+                    {capabilitySupport.tools !== null && <span className={`server-capability${capabilitySupport.tools ? ' is-supported' : ' is-unsupported'}`}>T</span>}
+                    {capabilitySupport.resources !== null && <span className={`server-capability${capabilitySupport.resources ? ' is-supported' : ' is-unsupported'}`}>R</span>}
+                    {capabilitySupport.prompts !== null && <span className={`server-capability${capabilitySupport.prompts ? ' is-supported' : ' is-unsupported'}`}>P</span>}
                   </div>
                 )}
               </div>
