@@ -287,6 +287,19 @@ body {
 .tab:hover    { color: var(--vscode-tab-activeForeground); background: var(--vscode-tab-hoverBackground); }
 .tab.active   { color: var(--vscode-tab-activeForeground); border-bottom-color: var(--vscode-focusBorder, #007acc); }
 
+/* Separator + global tab (Tests) */
+.tab-separator {
+  width: 1px;
+  margin: 5px 4px;
+  background: var(--vscode-widget-border, var(--vscode-editorWidget-border, #444));
+  flex-shrink: 0;
+}
+.tab.tab-global {
+  opacity: 0.8;
+}
+.tab.tab-global:hover { opacity: 1; }
+.tab.tab-global.active { opacity: 1; }
+
 /* ── Panel split layout ─────────────────────────────────────────────────── */
 .panel { display: flex; flex: 1; overflow: hidden; min-height: 0; }
 

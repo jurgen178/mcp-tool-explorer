@@ -766,9 +766,11 @@ export default function App() {
                   </div>
                 );
               })()}
+              <div className="tab-separator" />
               <div
-                className={`tab${state.activeTab === 'tests' ? ' active' : ''}`}
+                className={`tab tab-global${state.activeTab === 'tests' ? ' active' : ''}`}
                 onClick={() => dispatch({ type: 'SELECT_TAB', tab: 'tests' })}
+                title="Tests run against any server — not specific to the selected server"
               >
                 Tests{state.tests.length > 0 ? ` (${state.tests.length})` : ''}
               </div>
