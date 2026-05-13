@@ -170,11 +170,16 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
             const messageParts = rpcMatch
               ? { before: rpcMatch[1], badge: rpcMatch[2], after: rpcMatch[3] }
               : null;
+            const isCapabilityList = /^List (?:tools|resources|prompts) finished/i.test(entry.message);
             return (
               <div
                 key={idx}
                 style={{
                   borderBottom: '1px solid var(--vscode-widget-border, #2d2d2d)',
+                  ...(isCapabilityList ? {
+                    borderLeft: '3px solid var(--vscode-charts-green, #4ec9b0)',
+                    background: 'rgba(78,201,176,0.12)',
+                  } : { borderLeft: '3px solid transparent' }),
                 }}
               >
                 {/* Summary line */}
@@ -201,7 +206,7 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
                   }}>
                     {entry.level}
                   </span>
-                  <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 11 }}>
+                  <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 11, ...(isCapabilityList ? { color: 'var(--vscode-charts-green, #4ec9b0)', fontWeight: 600 } : {}) }}>
                     {messageParts ? (
                       <>
                         {messageParts.before}{' '}
