@@ -68,7 +68,7 @@ export class McpToolExplorerPanel {
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
     // Watch for external changes to the test file
-    const testWatcher = vscode.workspace.createFileSystemWatcher('**/.mcp-tests.json');
+    const testWatcher = vscode.workspace.createFileSystemWatcher('**/mcp-tests.json');
     const onTestFileChanged = () => { if (Date.now() > this._ignoreWatcherUntil) this._loadAndSendTests(); };
     testWatcher.onDidChange(onTestFileChanged, null, this._disposables);
     testWatcher.onDidCreate(onTestFileChanged, null, this._disposables);
@@ -275,7 +275,7 @@ export class McpToolExplorerPanel {
   // ── Helpers ───────────────────────────────────────────────────────────────
   private _getTestFilePath(): string | undefined {
     const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    return folder ? path.join(folder, '.mcp-tests.json') : undefined;
+    return folder ? path.join(folder, 'mcp-tests.json') : undefined;
   }
 
   /**
