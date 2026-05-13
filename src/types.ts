@@ -101,6 +101,8 @@ export interface TestAssertion {
 export interface TestCase {
   id: string;
   name: string;
+  /** Optional group/suite name for organising tests in the UI. */
+  group?: string;
   serverId: string;
   /** Server endpoint for portability: URL for http/sse servers, or the command string for stdio.
    * Used as fallback when serverId is not found in the local MCP config. */
@@ -135,8 +137,8 @@ export type MessageToExtension =
   | { type: 'updateServer'; serverId: string; config: Omit<McpServerConfig, 'id' | 'source'> }
   | { type: 'removeServer'; serverId: string }
   | { type: 'loadTests' }
-  | { type: 'saveTests'; tests: TestCase[] }
-  | { type: 'runTest'; test: TestCase; requestId: string };
+  | { type: 'saveTests'; tests: TestCase[]; variables: Record<string, string> }
+  | { type: 'runTest'; test: TestCase; requestId: string; variables: Record<string, string> };
 
 // ── Messages: Extension → Webview ──────────────────────────────────────────
 
@@ -159,6 +161,6 @@ export type MessageToWebview =
   | { type: 'promptArgumentCompletion'; requestId: string; argumentName: string; values: string[] }
   | { type: 'promptContent'; requestId: string; content: unknown }
   | { type: 'connectionLog'; serverId: string; log: { timestamp: number; level: 'info' | 'warn' | 'error'; message: string; detail?: string | { kind: string; content: string }[] } }
-  | { type: 'testsLoaded'; tests: TestCase[] }
+  | { type: 'testsLoaded'; tests: TestCase[]; variables: Record<string, string> }
   | { type: 'testRunResult'; requestId: string; result: TestRunResult }
   | { type: 'error'; message: string; requestId?: string };

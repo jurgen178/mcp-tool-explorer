@@ -1190,3 +1190,40 @@ body {
   font-family: var(--vscode-editor-font-family, monospace);
 }
 
+/* ── Variables editor ── */
+.tests-btn-vars       { font-size: 11px; padding: 1px 8px; }
+.tests-btn-vars.active { background: var(--vscode-button-secondaryHoverBackground); }
+.test-vars-panel {
+  border-bottom: 1px solid var(--vscode-widget-border, #444);
+  padding: 6px 8px 8px;
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+.test-vars-editor     { display: flex; flex-direction: column; gap: 4px; }
+.test-var-row         { display: flex; align-items: center; gap: 4px; }
+.test-var-key         { width: 100px; flex-shrink: 0; font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; }
+.test-var-val         { flex: 1; font-family: var(--vscode-editor-font-family, monospace); font-size: 12px; }
+.test-var-eq          { flex-shrink: 0; color: var(--vscode-descriptionForeground); font-size: 12px; }
+.test-var-del         { flex-shrink: 0; background: none; border: none; color: var(--vscode-errorForeground); cursor: pointer; padding: 0 4px; font-size: 14px; line-height: 1; }
+.test-var-del:hover   { opacity: 0.7; }
+.test-var-add         { flex-shrink: 0; font-size: 11px; padding: 1px 8px; }
+.test-vars-hint       { font-size: 11px; color: var(--vscode-descriptionForeground); margin-top: 4px; }
+
+/* ── Test groups ── */
+.tests-group          { display: flex; flex-direction: column; }
+.tests-group-header   {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px 2px;
+  background: var(--vscode-sideBarSectionHeader-background, rgba(128,128,128,0.1));
+  border-top: 1px solid var(--vscode-widget-border, #444);
+}
+.tests-group-name     { flex: 1; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--vscode-descriptionForeground); }
+.tests-group-header-ungrouped .tests-group-name { font-style: italic; font-weight: 400; }
+.tests-group-run-btn  { background: none; border: none; color: var(--vscode-foreground); cursor: pointer; font-size: 11px; padding: 0 4px; opacity: 0.7; }
+.tests-group-run-btn:hover:not(:disabled) { opacity: 1; color: var(--vscode-charts-green, #4ec9b0); }
+.tests-group-run-btn:disabled { opacity: 0.3; cursor: default; }
+
+/* ── Group field inline hint ── */
+.form-hint-inline     { font-weight: 400; font-size: 11px; color: var(--vscode-descriptionForeground); }
+

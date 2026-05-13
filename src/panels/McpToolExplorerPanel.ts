@@ -16,6 +16,8 @@ export class McpToolExplorerPanel {
   private readonly _configDiscovery: McpConfigDiscovery;
   /** Single source-of-truth for server configs while the panel is open. */
   private _servers = new Map<string, McpServerConfig>();
+  /** Timestamp until which file-watcher events for the test file should be ignored (avoids echo after own writes). */
+  private _ignoreWatcherUntil = 0;
 
   // ── Static factory ────────────────────────────────────────────────────────
 
@@ -67,9 +69,10 @@ export class McpToolExplorerPanel {
 
     // Watch for external changes to the test file
     const testWatcher = vscode.workspace.createFileSystemWatcher('**/.mcp-tests.json');
-    testWatcher.onDidChange(() => this._loadAndSendTests(), null, this._disposables);
-    testWatcher.onDidCreate(() => this._loadAndSendTests(), null, this._disposables);
-    testWatcher.onDidDelete(() => this._post({ type: 'testsLoaded', tests: [] }), null, this._disposables);
+    const onTestFileChanged = () => { if (Date.now() > this._ignoreWatcherUntil) this._loadAndSendTests(); };
+    testWatcher.onDidChange(onTestFileChanged, null, this._disposables);
+    testWatcher.onDidCreate(onTestFileChanged, null, this._disposables);
+    testWatcher.onDidDelete(() => { if (Date.now() > this._ignoreWatcherUntil) this._post({ type: 'testsLoaded', tests: [], variables: {} }); }, null, this._disposables);
     this._disposables.push(testWatcher);
   }
 
@@ -228,18 +231,21 @@ export class McpToolExplorerPanel {
         const ordered = message.tests.map(t => ({
           id: t.id,
           name: t.name,
+          ...(t.group ? { group: t.group } : {}),
           serverId: t.serverId,
           serverEndpoint: t.serverEndpoint,
           toolName: t.toolName,
           args: t.args,
           assertion: t.assertion,
         }));
-        fs.writeFileSync(filePath, JSON.stringify(ordered, null, 2), 'utf-8');
+        const fileContent = { variables: message.variables, tests: ordered };
+        this._ignoreWatcherUntil = Date.now() + 500;
+        fs.writeFileSync(filePath, JSON.stringify(fileContent, null, 2), 'utf-8');
         break;
       }
 
       case 'runTest': {
-        const { test, requestId } = message;
+        const { test, requestId, variables } = message;
         const start = Date.now();
         try {
           // Resolve the server: prefer exact serverId match, fall back to serverEndpoint match
@@ -252,7 +258,8 @@ export class McpToolExplorerPanel {
             this._post({ type: 'testRunResult', requestId, result: { testId: test.id, status: 'error', durationMs: 0, message: 'Server is not connected. Connect to the server first.' } });
             break;
           }
-          const mcpResult = await this._clientManager.callTool(resolvedServerId, test.toolName, test.args);
+          const resolvedArgs = _substituteVars(test.args, variables ?? {});
+          const mcpResult = await this._clientManager.callTool(resolvedServerId, test.toolName, resolvedArgs);
           const durationMs = Date.now() - start;
           const evalResult = _evaluateAssertion(test.assertion, mcpResult.content, mcpResult.isError === true);
           this._post({ type: 'testRunResult', requestId, result: { testId: test.id, status: evalResult.pass ? 'pass' : 'fail', durationMs, actual: mcpResult.content, message: evalResult.message } });
@@ -294,15 +301,18 @@ export class McpToolExplorerPanel {
   private async _loadAndSendTests(): Promise<void> {
     const filePath = this._getTestFilePath();
     if (!filePath || !fs.existsSync(filePath)) {
-      this._post({ type: 'testsLoaded', tests: [] });
+      this._post({ type: 'testsLoaded', tests: [], variables: {} });
       return;
     }
     try {
       const raw = fs.readFileSync(filePath, 'utf-8');
-      const tests = JSON.parse(raw);
-      this._post({ type: 'testsLoaded', tests: Array.isArray(tests) ? tests : [] });
+      const parsed = JSON.parse(raw);
+      // Support both legacy (plain array) and new ({variables, tests}) format
+      const tests = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.tests) ? parsed.tests : []);
+      const variables: Record<string, string> = (!Array.isArray(parsed) && parsed.variables && typeof parsed.variables === 'object') ? parsed.variables : {};
+      this._post({ type: 'testsLoaded', tests, variables });
     } catch {
-      this._post({ type: 'testsLoaded', tests: [] });
+      this._post({ type: 'testsLoaded', tests: [], variables: {} });
     }
   }
   private async _sendServers(): Promise<void> {
@@ -490,4 +500,12 @@ function _getJsonPath(obj: unknown, dotPath: string): unknown {
     current = (current as Record<string, unknown>)[part];
   }
   return current;
+}
+
+/** Replace {{VAR_NAME}} placeholders in all string values of args. */
+function _substituteVars(args: Record<string, unknown>, vars: Record<string, string>): Record<string, unknown> {
+  const json = JSON.stringify(args);
+  const substituted = json.replace(/\{\{(\w+)\}\}/g, (_, name: string) => name in vars ? vars[name] : `{{${name}}}`);
+  try { return JSON.parse(substituted) as Record<string, unknown>; }
+  catch { return args; }
 }

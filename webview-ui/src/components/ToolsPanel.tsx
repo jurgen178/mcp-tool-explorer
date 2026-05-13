@@ -206,6 +206,7 @@ export default function ToolsPanel({
                   className="form-textarea"
                   value={jsonArgs}
                   onChange={e => setJsonArgs(e.target.value)}
+                  onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); handleRun(); } }}
                   rows={8}
                   title="Arguments as JSON"
                 />
@@ -224,6 +225,7 @@ export default function ToolsPanel({
               className="btn btn-primary"
               disabled={!isConnected || result?.status === 'pending' || (useJson && (validation?.errors.length ?? 0) > 0)}
               onClick={() => handleRun()}
+              title="Run Tool (Ctrl+Enter)"
             >
               {result?.status === 'pending' ? <><span className="spinner" />Running…</> : 'Run Tool'}
             </button>

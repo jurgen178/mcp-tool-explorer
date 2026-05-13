@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import type { McpServerConfig, McpTool, SchemaProperty, InputSchema, HistoryEntry, TestCase, TestAssertion, TestAssertionType, TestRunResult } from '../types';
 import JsonViewer from './JsonViewer';
 
@@ -8,20 +8,24 @@ interface Props {
   serverStatus: Record<string, string>;
   tools: Record<string, McpTool[]>;
   history: HistoryEntry[];
+  variables: Record<string, string>;
   testResults: Record<string, TestRunResult>;
   runningTestIds: string[];
   onSave: (tests: TestCase[]) => void;
+  onSaveVariables: (variables: Record<string, string>) => void;
   onRun: (test: TestCase) => void;
   onRunAll: () => void;
+  onRunGroup: (group: string) => void;
 }
 
 let idCounter = 0;
 function newId() { return `test-${Date.now()}-${++idCounter}`; }
 
-function emptyTest(serverId: string, toolName: string): TestCase {
+function emptyTest(serverId: string, toolName: string, group?: string): TestCase {
   return {
     id: newId(),
     name: 'New test',
+    ...(group ? { group } : {}),
     serverId,
     toolName,
     args: {},
@@ -124,14 +128,62 @@ function StatusIcon({ testId, results, running }: { testId: string; results: Rec
   return <span className="test-status-icon test-status-error" title="Error">!</span>;
 }
 
+// ── Variables editor ──────────────────────────────────────────────────────────
+
+function VariablesEditor({ variables, onSave }: {
+  variables: Record<string, string>;
+  onSave: (v: Record<string, string>) => void;
+}) {
+  const [entries, setEntries] = useState<Array<{ id: number; k: string; v: string }>>(() =>
+    Object.entries(variables).map(([k, v], i) => ({ id: i, k, v }))
+  );
+  const [newKey, setNewKey] = useState('');
+  const [newVal, setNewVal] = useState('');
+  const nextId = useRef(Object.keys(variables).length);
+
+  const commit = (next: typeof entries) => {
+    const obj: Record<string, string> = {};
+    for (const { k, v } of next) if (k.trim()) obj[k.trim()] = v;
+    onSave(obj);
+  };
+  const update = (id: number, field: 'k' | 'v', val: string) =>
+    setEntries(prev => prev.map(e => e.id === id ? { ...e, [field]: val } : e));
+  const remove = (id: number) => { const next = entries.filter(e => e.id !== id); setEntries(next); commit(next); };
+  const add = () => {
+    if (!newKey.trim()) return;
+    const next = [...entries, { id: ++nextId.current, k: newKey.trim(), v: newVal }];
+    setEntries(next); commit(next); setNewKey(''); setNewVal('');
+  };
+
+  return (
+    <div className="test-vars-editor">
+      {entries.map(e => (
+        <div key={e.id} className="test-var-row">
+          <input className="test-var-key" value={e.k} onChange={ev => update(e.id, 'k', ev.target.value)} onBlur={() => commit(entries)} placeholder="NAME" spellCheck={false} />
+          <span className="test-var-eq">=</span>
+          <input className="test-var-val" value={e.v} onChange={ev => update(e.id, 'v', ev.target.value)} onBlur={() => commit(entries)} placeholder="value" spellCheck={false} />
+          <button className="test-var-del" onClick={() => remove(e.id)} title="Remove variable">×</button>
+        </div>
+      ))}
+      <div className="test-var-row test-var-add-row">
+        <input className="test-var-key" value={newKey} onChange={e => setNewKey(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add(); }} placeholder="NEW_VAR" spellCheck={false} />
+        <span className="test-var-eq">=</span>
+        <input className="test-var-val" value={newVal} onChange={e => setNewVal(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add(); }} placeholder="value" spellCheck={false} />
+        <button className="btn btn-secondary test-var-add" onClick={add} disabled={!newKey.trim()} title="Add variable">+</button>
+      </div>
+      {entries.length > 0 && <div className="test-vars-hint">Use <code>{'{{NAME}}'}</code> in test arguments to substitute</div>}
+    </div>
+  );
+}
+
 export default function TestsPanel({
-  tests, servers, serverStatus, tools, history, testResults, runningTestIds, onSave, onRun, onRunAll,
+  tests, servers, serverStatus, tools, history, variables, testResults, runningTestIds,
+  onSave, onSaveVariables, onRun, onRunAll, onRunGroup,
 }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(() => tests[0]?.id ?? null);
+  const [showVars, setShowVars] = useState(false);
 
   const selected = tests.find(t => t.id === selectedId) ?? null;
-
-  // ── Mutations ─────────────────────────────────────────────────────────────
 
   const upsert = useCallback((updated: TestCase) => {
     const next = tests.some(t => t.id === updated.id)
@@ -143,7 +195,7 @@ export default function TestsPanel({
   const handleNew = () => {
     const serverId = servers[0]?.id ?? '';
     const toolName = (tools[serverId] ?? [])[0]?.name ?? '';
-    const t = emptyTest(serverId, toolName);
+    const t = emptyTest(serverId, toolName, selected?.group);
     onSave([...tests, t]);
     setSelectedId(t.id);
   };
@@ -154,13 +206,30 @@ export default function TestsPanel({
     if (selectedId === id) setSelectedId(next[0]?.id ?? null);
   };
 
+  // Groups
+  const groups = [...new Set(tests.map(t => t.group).filter(Boolean) as string[])].sort();
+  const allGroups = groups;
+  const hasGroups = groups.length > 0;
 
+  const renderTestItem = (test: TestCase) => (
+    <div
+      key={test.id}
+      className={`list-item tests-list-item${selectedId === test.id ? ' active' : ''}`}
+      onClick={() => setSelectedId(test.id)}
+    >
+      <div className="tests-list-item-row">
+        <StatusIcon testId={test.id} results={testResults} running={runningTestIds} />
+        <span className="list-item-name tests-list-item-name">{test.name}</span>
+      </div>
+      <div className="list-item-sub">{test.toolName}</div>
+    </div>
+  );
 
-  // ── Summary ───────────────────────────────────────────────────────────────
   const total   = tests.length;
   const passed  = tests.filter(t => testResults[t.id]?.status === 'pass').length;
   const failed  = tests.filter(t => testResults[t.id]?.status === 'fail' || testResults[t.id]?.status === 'error').length;
   const running = runningTestIds.length;
+  const varCount = Object.keys(variables).length;
 
   return (
     <div className="panel tests-panel">
@@ -176,7 +245,20 @@ export default function TestsPanel({
           >
             {running > 0 ? <><span className="spinner" /> Running…</> : '▶ Run all'}
           </button>
+          <button
+            className={`btn btn-secondary tests-btn-vars${showVars ? ' active' : ''}`}
+            onClick={() => setShowVars(v => !v)}
+            title="Manage environment variables — use {{NAME}} in test args"
+          >
+            {varCount > 0 ? `⚙ Vars (${varCount})` : '⚙ Vars'} {showVars ? '▲' : '▼'}
+          </button>
         </div>
+
+        {showVars && (
+          <div className="test-vars-panel">
+            <VariablesEditor variables={variables} onSave={onSaveVariables} />
+          </div>
+        )}
 
         {total > 0 && (
           <div className="tests-summary">
@@ -196,19 +278,38 @@ export default function TestsPanel({
             <p>No tests yet.</p>
             <p>Click <strong>+ New</strong> to create one.</p>
           </div>
-        ) : tests.map(test => (
-          <div
-            key={test.id}
-            className={`list-item tests-list-item${selectedId === test.id ? ' active' : ''}`}
-            onClick={() => setSelectedId(test.id)}
-          >
-            <div className="tests-list-item-row">
-              <StatusIcon testId={test.id} results={testResults} running={runningTestIds} />
-              <span className="list-item-name tests-list-item-name">{test.name}</span>
-            </div>
-            <div className="list-item-sub">{test.toolName}</div>
-          </div>
-        ))}
+        ) : hasGroups ? (
+          <>
+            {groups.map(group => {
+              const groupTests = tests.filter(t => t.group === group);
+              const groupRunning = groupTests.some(t => runningTestIds.includes(t.id));
+              return (
+                <div key={group} className="tests-group">
+                  <div className="tests-group-header">
+                    <span className="tests-group-name">{group}</span>
+                    <button
+                      className="tests-group-run-btn"
+                      onClick={() => onRunGroup(group)}
+                      disabled={groupRunning}
+                      title={`Run all tests in "${group}"`}
+                    >▶</button>
+                  </div>
+                  {groupTests.map(renderTestItem)}
+                </div>
+              );
+            })}
+            {tests.filter(t => !t.group).length > 0 && (
+              <div className="tests-group">
+                <div className="tests-group-header tests-group-header-ungrouped">
+                  <span className="tests-group-name">Other</span>
+                </div>
+                {tests.filter(t => !t.group).map(renderTestItem)}
+              </div>
+            )}
+          </>
+        ) : (
+          tests.map(renderTestItem)
+        )}
       </div>
 
       {/* ── Right editor ──────────────────────────────────────────────────── */}
@@ -221,6 +322,7 @@ export default function TestsPanel({
             serverStatus={serverStatus}
             tools={tools}
             history={history}
+            allGroups={allGroups}
             result={testResults[selected.id]}
             isRunning={runningTestIds.includes(selected.id)}
             onChange={upsert}
@@ -245,6 +347,7 @@ interface EditorProps {
   serverStatus: Record<string, string>;
   tools: Record<string, McpTool[]>;
   history: HistoryEntry[];
+  allGroups: string[];
   result: TestRunResult | undefined;
   isRunning: boolean;
   onChange: (t: TestCase) => void;
@@ -252,7 +355,7 @@ interface EditorProps {
   onDelete: () => void;
 }
 
-function TestEditor({ test, servers, serverStatus, tools, history, result, isRunning, onChange, onRun, onDelete }: EditorProps) {
+function TestEditor({ test, servers, serverStatus, tools, history, allGroups, result, isRunning, onChange, onRun, onDelete }: EditorProps) {
   const [useJson, setUseJson] = useState(true);
   const [argsJson, setArgsJson] = useState(() => JSON.stringify(test.args, null, 2));
   const [formValues, setFormValues] = useState<Record<string, string>>({});
@@ -391,7 +494,7 @@ function TestEditor({ test, servers, serverStatus, tools, history, result, isRun
             className="btn btn-primary"
             onClick={onRun}
             disabled={isRunning || !isConnected}
-            title={!isConnected ? 'Connect to the server first' : 'Run this test'}
+            title={!isConnected ? 'Connect to the server first' : 'Run this test (Ctrl+Enter)'}
           >
             {isRunning ? <><span className="spinner" /> Running…</> : '▶ Run'}
           </button>
@@ -454,6 +557,21 @@ function TestEditor({ test, servers, serverStatus, tools, history, result, isRun
         <p className="test-tool-desc">{selectedTool.description}</p>
       )}
 
+      {/* ── Group ── */}
+      <div className="form-group">
+        <label className="form-label">Group <span className="form-hint-inline">(optional)</span></label>
+        <input
+          className="form-input"
+          list="test-group-datalist"
+          value={test.group ?? ''}
+          onChange={e => onChange({ ...test, group: e.target.value || undefined })}
+          placeholder="e.g. Basic, Auth, Edge Cases"
+        />
+        <datalist id="test-group-datalist">
+          {allGroups.map(g => <option key={g} value={g} />)}
+        </datalist>
+      </div>
+
       {/* ── Arguments ── */}
       <div className="form-group">
         <div className="test-args-header">
@@ -497,6 +615,7 @@ function TestEditor({ test, servers, serverStatus, tools, history, result, isRun
               className={`form-textarea test-args-textarea${argsError ? ' input-error' : ''}`}
               value={argsJson}
               onChange={e => handleArgsChange(e.target.value)}
+              onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); if (!isRunning && isConnected) onRun(); } }}
               rows={5}
               spellCheck={false}
             />

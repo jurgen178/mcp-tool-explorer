@@ -68,6 +68,7 @@ interface AppState {
   showAddServer: boolean;
   editingServer: McpServerConfig | null;
   tests: TestCase[];
+  testVariables: Record<string, string>;
   testResults: Record<string, TestRunResult>;
   runningTestIds: string[];
 }
@@ -100,7 +101,7 @@ type Action =
   | { type: 'HISTORY_ADD'; entry: HistoryEntry }
   | { type: 'HISTORY_UPDATE'; id: string; status: 'done' | 'error'; result?: unknown; isError?: boolean }
   | { type: 'HISTORY_CLEAR'; serverId: string }
-  | { type: 'TESTS_LOADED'; tests: TestCase[] }
+  | { type: 'TESTS_LOADED'; tests: TestCase[]; variables: Record<string, string> }
   | { type: 'TEST_RESULT'; result: TestRunResult; requestId: string }
   | { type: 'TEST_RUN_START'; testId: string; requestId: string };
 
@@ -127,6 +128,7 @@ const initialState: AppState = {
   showAddServer: false,
   editingServer: null,
   tests: [],
+  testVariables: {},
   testResults: {},
   runningTestIds: [],
 };
@@ -364,7 +366,7 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, history: state.history.filter(e => e.serverId !== action.serverId) };
 
     case 'TESTS_LOADED':
-      return { ...state, tests: action.tests };
+      return { ...state, tests: action.tests, testVariables: action.variables };
 
     case 'TEST_RUN_START':
       return { ...state, runningTestIds: [...state.runningTestIds.filter(id => id !== action.testId), action.testId] };
@@ -454,7 +456,7 @@ export default function App() {
           }
           break;
         case 'testsLoaded':
-          dispatch({ type: 'TESTS_LOADED', tests: msg.tests });
+          dispatch({ type: 'TESTS_LOADED', tests: msg.tests, variables: msg.variables });
           break;
         case 'testRunResult':
           dispatch({ type: 'TEST_RESULT', result: msg.result, requestId: msg.requestId });
@@ -532,15 +534,19 @@ export default function App() {
   let testReqCounter = 0;
   const nextTestReqId = () => `testrun-${Date.now()}-${++testReqCounter}`;
 
-  const handleSaveTests = (tests: typeof state.tests) => {
-    dispatch({ type: 'TESTS_LOADED', tests });
-    postMessage({ type: 'saveTests', tests });
+  const handleSaveTests = (tests: typeof state.tests, variables = state.testVariables) => {
+    dispatch({ type: 'TESTS_LOADED', tests, variables });
+    postMessage({ type: 'saveTests', tests, variables });
+  };
+
+  const handleSaveVariables = (variables: Record<string, string>) => {
+    handleSaveTests(state.tests, variables);
   };
 
   const handleRunTest = (test: (typeof state.tests)[0]) => {
     const requestId = nextTestReqId();
     dispatch({ type: 'TEST_RUN_START', testId: test.id, requestId });
-    postMessage({ type: 'runTest', test, requestId });
+    postMessage({ type: 'runTest', test, requestId, variables: state.testVariables });
   };
 
   const handleRunAllTests = () => {
@@ -548,7 +554,16 @@ export default function App() {
     for (const test of testsToRun) {
       const requestId = nextTestReqId();
       dispatch({ type: 'TEST_RUN_START', testId: test.id, requestId });
-      postMessage({ type: 'runTest', test, requestId });
+      postMessage({ type: 'runTest', test, requestId, variables: state.testVariables });
+    }
+  };
+
+  const handleRunGroup = (group: string) => {
+    const testsToRun = state.tests.filter(t => t.group === group && !state.runningTestIds.includes(t.id));
+    for (const test of testsToRun) {
+      const requestId = nextTestReqId();
+      dispatch({ type: 'TEST_RUN_START', testId: test.id, requestId });
+      postMessage({ type: 'runTest', test, requestId, variables: state.testVariables });
     }
   };
 
@@ -842,9 +857,12 @@ export default function App() {
                 history={state.history}
                 testResults={state.testResults}
                 runningTestIds={state.runningTestIds}
+                variables={state.testVariables}
                 onSave={handleSaveTests}
+                onSaveVariables={handleSaveVariables}
                 onRun={handleRunTest}
                 onRunAll={handleRunAllTests}
+                onRunGroup={handleRunGroup}
               />
             )}
           </>
