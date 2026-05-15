@@ -690,7 +690,7 @@ function TestEditor({ test, servers, serverStatus, tools, history, allGroups, re
         <select
           className="form-select"
           value={test.assertion.type}
-          onChange={e => onChange({ ...test, assertion: { type: e.target.value as TestAssertionType } })}
+          onChange={e => onChange({ ...test, assertion: { ...test.assertion, type: e.target.value as TestAssertionType } })}
         >
           {(Object.keys(ASSERTION_LABELS) as TestAssertionType[]).map(k => (
             <option key={k} value={k}>{ASSERTION_LABELS[k]}</option>
