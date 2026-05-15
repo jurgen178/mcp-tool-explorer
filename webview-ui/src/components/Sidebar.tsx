@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { McpServerConfig, ConnectionStatus, McpServerDetails } from '../types';
+import { ConfettiOverlay } from './MatrixProtocol';
 
 interface CapabilitySupport {
   tools: boolean | null;
@@ -76,11 +77,25 @@ export default function Sidebar({
   onSelect, onConnect, onDisconnect, onRemove, onEdit, onAdd,
 }: Props) {
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
+  const [confetti, setConfetti] = useState(false);
+  const clickCountRef = useRef(0);
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleTitleClick = () => {
+    clickCountRef.current += 1;
+    if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
+    clickTimerRef.current = setTimeout(() => { clickCountRef.current = 0; }, 3000);
+    if (clickCountRef.current >= 7) {
+      clickCountRef.current = 0;
+      setConfetti(true);
+    }
+  };
 
   return (
     <div className="sidebar">
+      {confetti && <ConfettiOverlay onDismiss={() => setConfetti(false)} />}
       <div className="sidebar-header">
-        <span>Servers</span>
+        <span style={{ cursor: 'default', userSelect: 'none' }} onClick={handleTitleClick}>Servers</span>
         <button className="icon-btn" title="Add server" onClick={onAdd}>＋</button>
       </div>
 

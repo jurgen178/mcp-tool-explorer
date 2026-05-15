@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import JsonViewer from './JsonViewer';
 import CopyButton from './CopyButton';
 import { interpretResult, type ResultInterpretation, type ImageItem } from '../resultInterpreters';
+import { extractTextValues } from '../resultInterpreters';
+import { FortyTwoToast } from './MatrixProtocol';
 
 interface Props {
   data: unknown;
@@ -78,6 +80,12 @@ export default function ResultViewer({ data, isError = false }: Props) {
   const interpretations = useMemo(() => interpretResult(data), [data]);
   const defaultTab = interpretations[0]?.id ?? 'raw';
 
+  const isFortyTwo = useMemo(() => {
+    if (data === 42) return true;
+    const texts = extractTextValues(data);
+    return texts.length === 1 && texts[0].trim() === '42';
+  }, [data]);
+
   useEffect(() => {
     setActiveTab(defaultTab);
   }, [defaultTab, data]);
@@ -86,6 +94,7 @@ export default function ResultViewer({ data, isError = false }: Props) {
 
   return (
     <div className="result-viewer">
+      {isFortyTwo && !isError && <FortyTwoToast key={String(data)} />}
       {interpretations.length > 0 && (
         <div className="result-viewer-tabs">
           <div className="result-tabs">

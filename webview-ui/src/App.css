@@ -1125,6 +1125,120 @@ body {
   margin-left: auto;
 }
 
+/* ── Easter Eggs ─────────────────────────────────────────────────────────── */
+
+/* "42" Douglas Adams toast */
+.easter-egg-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  border: 1px solid #4d96ff;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  position: relative;
+  animation: easter-slide-in 0.4s ease;
+}
+@keyframes easter-slide-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.easter-egg-toast-num {
+  font-size: 28px;
+  font-weight: bold;
+  color: #4d96ff;
+  font-family: monospace;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.easter-egg-toast-text {
+  font-size: 12px;
+  color: #cdd9f5;
+  font-style: italic;
+  flex: 1;
+}
+.easter-egg-toast-close {
+  background: none;
+  border: none;
+  color: #88aadd;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 4px;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+.easter-egg-toast-close:hover { opacity: 1; }
+
+/* Confetti overlay */
+.easter-egg-confetti-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  overflow: hidden;
+  cursor: pointer;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.confetti-piece {
+  position: absolute;
+  top: -20px;
+  animation: confetti-fall linear forwards;
+}
+@keyframes confetti-fall {
+  0%   { top: -20px; opacity: 1; transform: rotate(0deg) translateX(0); }
+  80%  { opacity: 1; }
+  100% { top: 110vh; opacity: 0; transform: rotate(720deg) translateX(40px); }
+}
+.easter-egg-confetti-card {
+  background: var(--vscode-editor-background, #1e1e1e);
+  border: 1px solid var(--vscode-panel-border, #333);
+  border-radius: 12px;
+  padding: 28px 36px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  animation: easter-slide-in 0.3s ease;
+}
+.easter-egg-confetti-emoji {
+  font-size: 40px;
+  line-height: 1;
+}
+.easter-egg-confetti-title {
+  font-size: 20px;
+  font-weight: bold;
+  color: var(--vscode-foreground);
+}
+.easter-egg-confetti-sub {
+  font-size: 13px;
+  color: var(--vscode-descriptionForeground);
+}
+.easter-egg-github-btn {
+  margin-top: 4px;
+  padding: 8px 20px;
+  background: #f0c040;
+  color: #1a1a1a;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.easter-egg-github-btn:hover { background: #ffe066; }
+.easter-egg-confetti-hint {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.6;
+  margin-top: 4px;
+}
+
 .test-result-message {
   margin: 0;
   padding: 10px 12px;

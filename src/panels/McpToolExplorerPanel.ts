@@ -253,6 +253,11 @@ export class McpToolExplorerPanel {
         break;
       }
 
+      case 'openExternal': {
+        void vscode.env.openExternal(vscode.Uri.parse(message.url));
+        break;
+      }
+
       case 'runTest': {
         const { test, requestId, variables } = message;
         const start = Date.now();

@@ -15,6 +15,7 @@ import EventsPanel from './components/EventsPanel';
 import TestsPanel from './components/TestsPanel';
 import AddServerModal from './components/AddServerModal';
 import CopyButton from './components/CopyButton';
+import { useKonamiCode, MatrixRainOverlay } from './components/MatrixProtocol';
 
 // ── State & Reducer ──────────────────────────────────────────────────────────
 
@@ -573,6 +574,9 @@ export default function App() {
 
 
 
+  const [matrixActive, setMatrixActive] = React.useState(false);
+  useKonamiCode(React.useCallback(() => setMatrixActive(true), []));
+
   const sidebarWrapperRef = useRef<HTMLDivElement>(null);
   const sidebarHandleRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<HTMLDivElement>(null);
@@ -689,6 +693,7 @@ export default function App() {
 
   return (
     <div className="app" ref={appRef}>
+      {matrixActive && <MatrixRainOverlay onDismiss={() => setMatrixActive(false)} />}
       <div className="sidebar-wrapper" ref={sidebarWrapperRef}>
         <Sidebar
           servers={state.servers}

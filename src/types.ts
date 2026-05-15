@@ -141,7 +141,8 @@ export type MessageToExtension =
   | { type: 'cancelConnect'; serverId: string }
   | { type: 'loadTests' }
   | { type: 'saveTests'; tests: TestCase[]; variables: Record<string, string> }
-  | { type: 'runTest'; test: TestCase; requestId: string; variables: Record<string, string> };
+  | { type: 'runTest'; test: TestCase; requestId: string; variables: Record<string, string> }
+  | { type: 'openExternal'; url: string };
 
 // ── Messages: Extension → Webview ──────────────────────────────────────────
 
