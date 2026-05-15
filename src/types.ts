@@ -109,6 +109,8 @@ export interface TestCase {
   serverEndpoint?: string;
   toolName: string;
   args: Record<string, unknown>;
+  /** Preferred input mode for the editor UI. */
+  viewMode?: 'json' | 'form';
   assertion: TestAssertion;
 }
 

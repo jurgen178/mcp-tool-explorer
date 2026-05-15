@@ -41,10 +41,12 @@ export function usePanelResize({
       list.style.setProperty('--panel-list-width', `${width}px`);
     };
 
-    // Restore persisted width
+    // Restore persisted width — clamp only against absolute min/max, not parent
+    // width, because the panel may be hidden (display:none) on mount and
+    // parentElement.clientWidth would be 0, collapsing the list.
     const stored = localStorage.getItem(storageKey);
     const parsed = stored ? parseInt(stored, 10) : NaN;
-    const initial = clampListWidth(!isNaN(parsed) ? parsed : defaultWidth);
+    const initial = !isNaN(parsed) ? Math.max(min, Math.min(max, parsed)) : defaultWidth;
     applyListWidth(initial);
 
     const onPointerDown = (e: PointerEvent) => {
@@ -108,10 +110,13 @@ export function usePanelResize({
 
     handle.addEventListener('pointerdown', onPointerDown);
 
-    // Clamp list width when the container shrinks (e.g. window un-maximized)
+    // Clamp list width when the container shrinks (e.g. window un-maximized).
+    // Skip when the container is hidden (clientWidth === 0) — e.g. when the
+    // panel tab is inactive and its wrapper has display:none — otherwise the
+    // ResizeObserver would clamp the stored width down to the minimum.
     const container = list.parentElement;
     const observer = new ResizeObserver(() => {
-      if (!container) return;
+      if (!container || container.clientWidth === 0) return;
       const currentList = list.getBoundingClientRect().width;
       applyListWidth(clampListWidth(currentList));
     });

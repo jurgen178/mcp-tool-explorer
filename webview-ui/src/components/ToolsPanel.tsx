@@ -59,6 +59,21 @@ function validateJsonArgs(json: string, schema: InputSchema): { errors: string[]
   return { errors, warnings };
 }
 
+// ── Flatten parsed args into flat form-values (mirrors TestsPanel) ──────────────
+function flattenArgs(obj: Record<string, unknown>, props: Record<string, SchemaProperty>, prefix: string): Record<string, string> {
+  const fv: Record<string, string> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    const path = prefix ? `${prefix}.${k}` : k;
+    const schema = props[k];
+    if (schema?.type === 'object' && schema.properties && typeof v === 'object' && v !== null && !Array.isArray(v)) {
+      Object.assign(fv, flattenArgs(v as Record<string, unknown>, schema.properties as Record<string, SchemaProperty>, path));
+    } else {
+      fv[path] = typeof v === 'object' ? JSON.stringify(v) : String(v ?? '');
+    }
+  }
+  return fv;
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ToolsPanel({
@@ -66,6 +81,7 @@ export default function ToolsPanel({
   pendingRerun, onPendingRerunConsumed, onStartRequest,
 }: Props) {
   const [selectedTool, setSelectedTool] = useState<McpTool | null>(null);
+  const [search, setSearch] = useState('');
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [jsonArgs, setJsonArgs] = useState('{}');
   const [useJson, setUseJson] = useState(false);
@@ -73,15 +89,22 @@ export default function ToolsPanel({
   const [expandedPrev, setExpandedPrev] = useState<string | null>(null);
   const { listRef, handleRef } = usePanelResize({ storageKey: 'panel-list-width:tools' });
 
+  const searchLower = search.toLowerCase();
+  const filteredTools = search
+    ? tools.filter(t => t.name.toLowerCase().includes(searchLower) || t.description?.toLowerCase().includes(searchLower))
+    : tools;
+
   // Handle re-run signal from History tab
   useEffect(() => {
     if (!pendingRerun) return;
     if (pendingRerun.serverId !== serverId) return;
     const tool = tools.find(t => t.name === pendingRerun.toolName);
     if (tool) {
+      const args = (pendingRerun.args ?? {}) as Record<string, unknown>;
       setSelectedTool(tool);
-      setJsonArgs(JSON.stringify(pendingRerun.args ?? {}, null, 2));
-      setUseJson(true);
+      setJsonArgs(JSON.stringify(args, null, 2));
+      setFormValues(flattenArgs(args, tool.inputSchema?.properties ?? {}, ''));
+      // keep the user's current view mode — don't force JSON
     }
     onPendingRerunConsumed();
   }, [pendingRerun, serverId, tools, onPendingRerunConsumed]);
@@ -92,6 +115,16 @@ export default function ToolsPanel({
     if (stillExists) return;
 
     setSelectedTool(null);
+    setFormValues({});
+    setJsonArgs('{}');
+    setUseJson(false);
+    setExpandedPrev(null);
+  }, [tools, selectedTool]);
+
+  useEffect(() => {
+    if (selectedTool !== null) return;
+    if (tools.length === 0) return;
+    setSelectedTool(tools[0]);
     setFormValues({});
     setJsonArgs('{}');
     setUseJson(false);
@@ -113,8 +146,11 @@ export default function ToolsPanel({
     if (argsOverride !== undefined) {
       args = argsOverride;
       setJsonArgs(JSON.stringify(argsOverride, null, 2));
-      setUseJson(true);
+      setFormValues(flattenArgs(argsOverride, selectedTool.inputSchema?.properties ?? {}, ''));
+      // keep the user's current view mode — don't force JSON
     } else if (useJson) {
+      const v = selectedTool ? validateJsonArgs(jsonArgs, selectedTool.inputSchema) : null;
+      if (v && v.errors.length > 0) return;
       try { args = JSON.parse(jsonArgs); }
       catch { return; }
     } else {
@@ -147,6 +183,17 @@ export default function ToolsPanel({
     <div className="panel">
       {/* List */}
       <div className="panel-list" ref={listRef}>
+        {tools.length >= 10 && (
+          <div className="tool-search-bar">
+            <input
+              className="tool-search-input"
+              type="search"
+              placeholder="Filter tools…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
+          </div>
+        )}
         {tools.length === 0 ? (
           <div className="empty-state empty-state-compact">
             <p>
@@ -159,7 +206,9 @@ export default function ToolsPanel({
                     : 'Connect to load tools.'}
             </p>
           </div>
-        ) : tools.map(tool => (
+        ) : filteredTools.length === 0 ? (
+          <div className="empty-state empty-state-compact"><p>No tools match "{search}".</p></div>
+        ) : filteredTools.map(tool => (
           <div
             key={tool.name}
             className={`list-item${selectedTool?.name === tool.name ? ' active' : ''}`}
@@ -182,7 +231,7 @@ export default function ToolsPanel({
       <div className="panel-resize-handle" ref={handleRef} />
 
       {/* Detail */}
-      <div className="panel-detail">
+      <div className="panel-detail" onKeyDown={e => { if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); handleRun(); } }}>
         {selectedTool ? (
           <>
             <div className="detail-title">{selectedTool.name}</div>
@@ -192,7 +241,19 @@ export default function ToolsPanel({
               <span className="section-title tool-panel-input-title">Input</span>
               <button
                 className="btn btn-secondary tool-panel-mode-toggle"
-                onClick={() => setUseJson(v => !v)}
+                onClick={() => {
+                  if (useJson) {
+                    // JSON → Form: parse current JSON into form values
+                    try {
+                      const parsed = JSON.parse(jsonArgs) as Record<string, unknown>;
+                      setFormValues(flattenArgs(parsed, selectedTool?.inputSchema?.properties ?? {}, ''));
+                    } catch { /* keep existing formValues */ }
+                  } else {
+                    // Form → JSON: serialize form values to JSON
+                    setJsonArgs(JSON.stringify(selectedTool ? buildArgs(selectedTool, formValues) : {}, null, 2));
+                  }
+                  setUseJson(v => !v);
+                }}
               >
                 {useJson ? 'Form view' : 'JSON view'}
               </button>

@@ -321,6 +321,25 @@ body {
   flex-shrink: 0;
 }
 
+.tool-search-bar {
+  padding: 6px 8px 4px;
+  border-bottom: 1px solid var(--vscode-widget-border, #454545);
+}
+.tool-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 2px;
+  padding: 3px 6px;
+  font-size: 12px;
+  outline: none;
+}
+.tool-search-input:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
 /* Sash between panel-list and panel-detail — sits as flex sibling, never clipped */
 .panel-resize-handle {
   width: 8px;

@@ -397,12 +397,16 @@ interface EditorProps {
 }
 
 function TestEditor({ test, servers, serverStatus, tools, history, allGroups, result, isRunning, onChange, onRun, onDelete }: EditorProps) {
-  const [useJson, setUseJson] = useState(true);
+  const [useJson, setUseJson] = useState(test.viewMode === 'json');
   const [argsJson, setArgsJson] = useState(() => JSON.stringify(test.args, null, 2));
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [argsError, setArgsError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const formInitializedRef = useRef(false);
+
+  // Reset form initialization when tool or server changes so form is re-populated
+  useEffect(() => { formInitializedRef.current = false; }, [test.toolName, test.serverId]);
 
   const serverTools = tools[test.serverId] ?? [];
   const isConnected = serverStatus[test.serverId] === 'connected';
@@ -416,6 +420,16 @@ function TestEditor({ test, servers, serverStatus, tools, history, allGroups, re
 
   const selectedTool = serverTools.find(t => t.name === test.toolName) ?? null;
   const hasFormFields = Object.keys(selectedTool?.inputSchema?.properties ?? {}).length > 0;
+
+  // Pre-populate form fields from test.args once the tool schema is available
+  useEffect(() => {
+    if (formInitializedRef.current) return;
+    if (!selectedTool) return;
+    formInitializedRef.current = true;
+    if (!test.args || typeof test.args !== 'object' || Array.isArray(test.args)) return;
+    const fv = flattenArgs(test.args as Record<string, unknown>, selectedTool.inputSchema?.properties ?? {}, '');
+    setFormValues(fv);
+  }, [selectedTool]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // History entries for this exact tool + server combination (no args filter — empty args {} is valid)
   const toolHistory = history
@@ -445,7 +459,11 @@ function TestEditor({ test, servers, serverStatus, tools, history, allGroups, re
         onChange({ ...test, args });
       }
     }
-    setUseJson(v => !v);
+    setUseJson(v => {
+      const next = !v;
+      onChange({ ...test, viewMode: next ? 'json' : 'form' });
+      return next;
+    });
   };
 
   const handleArgsChange = (raw: string) => {
@@ -518,7 +536,7 @@ function TestEditor({ test, servers, serverStatus, tools, history, allGroups, re
   };
 
   return (
-    <div className="test-editor-form">
+    <div className="test-editor-form" onKeyDown={e => { if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); onRun(); } }}>
       {/* ── Header ── */}
       <div className="test-editor-header">
         <input

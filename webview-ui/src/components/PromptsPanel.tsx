@@ -39,6 +39,7 @@ function getVisibleCompletionValues(values: string[] | undefined, currentValue: 
 export default function PromptsPanel({ serverId, prompts, loadState, requests, isConnected, onStartRequest }: Props) {
   const { listRef, handleRef } = usePanelResize({ storageKey: 'panel-list-width:prompts' });
   const [selected, setSelected] = useState<McpPrompt | null>(null);
+  const [search, setSearch] = useState('');
   const [argValues, setArgValues] = useState<Record<string, string>>({});
   const [lastReqId, setLastReqId] = useState<string | null>(null);
   const [activeResultTab, setActiveResultTab] = useState<'raw' | 'text'>('raw');
@@ -83,7 +84,7 @@ export default function PromptsPanel({ serverId, prompts, loadState, requests, i
     setCompletionValues(prev => ({ ...prev, [argumentName]: [] }));
   };
 
-  const requestCompletion = (promptName: string, argumentName: string, value: string, nextArgValues: Record<string, string>) => {
+  const requestCompletion = (promptName: string, argumentName: string, value: string, nextArgValues: Record<string, string>, delay = 180) => {
     if (!isConnected || loadState !== 'loaded') {
       clearCompletionForArgument(argumentName);
       return;
@@ -110,7 +111,7 @@ export default function PromptsPanel({ serverId, prompts, loadState, requests, i
         contextArgs,
         requestId,
       });
-    }, 180);
+    }, delay);
   };
 
   useEffect(() => {
@@ -130,6 +131,13 @@ export default function PromptsPanel({ serverId, prompts, loadState, requests, i
     setLastReqId(null);
     setActiveResultTab('raw');
     resetCompletions();
+    // Pre-fetch completions for all arguments immediately (0ms delay) so the
+    // dropdown indicator is already visible when the user focuses a field.
+    if (isConnected && loadState === 'loaded') {
+      for (const arg of prompt.arguments ?? []) {
+        requestCompletion(prompt.name, arg.name, '', {}, 0);
+      }
+    }
   };
 
   const handleGet = () => {
@@ -148,6 +156,10 @@ export default function PromptsPanel({ serverId, prompts, loadState, requests, i
   };
 
   const result = lastReqId ? requests[lastReqId] : undefined;
+  const searchLower = search.toLowerCase();
+  const filteredPrompts = search
+    ? prompts.filter(p => p.name.toLowerCase().includes(searchLower) || p.description?.toLowerCase().includes(searchLower))
+    : prompts;
   const textResults = useMemo(
     () => (result && result.status !== 'pending' ? extractTextValues(result.data) : []),
     [result],
@@ -163,6 +175,12 @@ export default function PromptsPanel({ serverId, prompts, loadState, requests, i
     <div className="panel">
       {/* List */}
       <div className="panel-list" ref={listRef}>
+        {prompts.length >= 10 && (
+          <div className="tool-search-bar">
+            <input className="tool-search-input" type="search" placeholder="Filter prompts…"
+              value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+        )}
         {prompts.length === 0 ? (
           <div className="empty-state empty-state-compact">
             <p>
@@ -175,7 +193,9 @@ export default function PromptsPanel({ serverId, prompts, loadState, requests, i
                     : 'Connect to load prompts.'}
             </p>
           </div>
-        ) : prompts.map(p => (
+        ) : filteredPrompts.length === 0 ? (
+          <div className="empty-state empty-state-compact"><p>No prompts match "{search}".</p></div>
+        ) : filteredPrompts.map(p => (
           <div
             key={p.name}
             className={`list-item${selected?.name === p.name ? ' active' : ''}`}
@@ -231,7 +251,10 @@ export default function PromptsPanel({ serverId, prompts, loadState, requests, i
                         requestCompletion(selected.name, arg.name, nextValue, nextState);
                       }}
                       onFocus={() => {
-                        if (currentValue.trim() === '' && visibleCompletionValues.length === 0) {
+                        // Only request if no pending timeout and no values yet —
+                        // avoids cancelling an in-progress prefetch.
+                        if (currentValue.trim() === '' && visibleCompletionValues.length === 0
+                            && completionTimeouts.current[arg.name] === undefined) {
                           requestCompletion(selected.name, arg.name, '', argValues);
                         }
                       }}

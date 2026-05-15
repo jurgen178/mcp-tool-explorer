@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { postMessage } from '../vscode';
 import { usePanelResize } from '../hooks/usePanelResize';
 import type { McpResource, RequestEntry, RequestInfo, CapabilityLoadState } from '../types';
@@ -20,8 +20,10 @@ function nextReqId() { return `res-${Date.now()}-${++reqCounter}`; }
 export default function ResourcesPanel({ serverId, resources, loadState, requests, isConnected, onStartRequest }: Props) {
   const { listRef, handleRef } = usePanelResize({ storageKey: 'panel-list-width:resources' });
   const [selected, setSelected] = useState<McpResource | null>(null);
+  const [search, setSearch] = useState('');
   const [lastReqId, setLastReqId] = useState<string | null>(null);
   const [activeResultTab, setActiveResultTab] = useState<'raw' | 'text'>('raw');
+  const tabExplicitlySetRef = useRef(false);
 
   useEffect(() => {
     if (!selected) return;
@@ -30,6 +32,7 @@ export default function ResourcesPanel({ serverId, resources, loadState, request
     setSelected(null);
     setLastReqId(null);
     setActiveResultTab('raw');
+    tabExplicitlySetRef.current = false;
   }, [resources, selected]);
 
   const handleRead = () => {
@@ -41,6 +44,10 @@ export default function ResourcesPanel({ serverId, resources, loadState, request
   };
 
   const result = lastReqId ? requests[lastReqId] : undefined;
+  const searchLower = search.toLowerCase();
+  const filteredResources = search
+    ? resources.filter(r => r.name.toLowerCase().includes(searchLower) || r.uri.toLowerCase().includes(searchLower))
+    : resources;
   const textResults = useMemo(
     () => (result && result.status !== 'pending' ? extractTextValues(result.data) : []),
     [result],
@@ -48,7 +55,9 @@ export default function ResourcesPanel({ serverId, resources, loadState, request
 
   useEffect(() => {
     if (result?.status === 'done' || result?.status === 'error') {
-      setActiveResultTab(textResults.length > 0 ? 'text' : 'raw');
+      if (!tabExplicitlySetRef.current) {
+        setActiveResultTab(textResults.length > 0 ? 'text' : 'raw');
+      }
     }
   }, [lastReqId, result?.status, textResults.length]);
 
@@ -56,6 +65,12 @@ export default function ResourcesPanel({ serverId, resources, loadState, request
     <div className="panel">
       {/* List */}
       <div className="panel-list" ref={listRef}>
+        {resources.length >= 10 && (
+          <div className="tool-search-bar">
+            <input className="tool-search-input" type="search" placeholder="Filter resources…"
+              value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+        )}
         {resources.length === 0 ? (
           <div className="empty-state empty-state-compact">
             <p>
@@ -68,11 +83,13 @@ export default function ResourcesPanel({ serverId, resources, loadState, request
                     : 'Connect to load resources.'}
             </p>
           </div>
-        ) : resources.map(r => (
+        ) : filteredResources.length === 0 ? (
+          <div className="empty-state empty-state-compact"><p>No resources match "{search}".</p></div>
+        ) : filteredResources.map(r => (
           <div
             key={r.uri}
             className={`list-item${selected?.uri === r.uri ? ' active' : ''}`}
-            onClick={() => { setSelected(r); setLastReqId(null); setActiveResultTab('raw'); }}
+            onClick={() => { setSelected(r); setLastReqId(null); setActiveResultTab('raw'); tabExplicitlySetRef.current = false; }}
           >
             <div className="list-item-name">{r.name}</div>
             <div className="list-item-sub">{r.uri}</div>
@@ -119,11 +136,11 @@ export default function ResourcesPanel({ serverId, resources, loadState, request
                     <div className="result-tabs">
                       <button
                         className={`result-tab${activeResultTab === 'raw' ? ' active' : ''}`}
-                        onClick={() => setActiveResultTab('raw')}
+                        onClick={() => { tabExplicitlySetRef.current = true; setActiveResultTab('raw'); }}
                       >Raw</button>
                       <button
                         className={`result-tab${activeResultTab === 'text' ? ' active' : ''}`}
-                        onClick={() => setActiveResultTab('text')}
+                        onClick={() => { tabExplicitlySetRef.current = true; setActiveResultTab('text'); }}
                       >Text</button>
                     </div>
                   )}

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import JsonViewer from './JsonViewer';
+import CopyButton from './CopyButton';
 import { interpretResult, type ResultInterpretation, type ImageItem } from '../resultInterpreters';
 
 interface Props {
@@ -45,7 +46,10 @@ function renderInterpretation(interp: ResultInterpretation) {
     return (
       <div className="text-result-list">
         {(interp.data as string[]).map((txt, idx) => (
-          <pre key={idx} className="text-result">{txt}</pre>
+          <div key={idx} className="json-viewer-wrap">
+            <CopyButton text={txt} />
+            <pre className="text-result">{txt}</pre>
+          </div>
         ))}
       </div>
     );

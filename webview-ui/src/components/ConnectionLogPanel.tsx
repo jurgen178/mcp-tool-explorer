@@ -78,10 +78,10 @@ function DetailSections({ sections }: { sections: LogSection[] }) {
             }}>
               {SECTION_LABELS[section.kind] ?? section.kind}
             </div>
-            <div className={isJson(section.kind) ? 'log-json-wrap' : undefined}>
+            <div className={isJson(section.kind) && parsed !== undefined ? 'log-json-wrap' : 'json-viewer-wrap'}>
               {parsed !== undefined
                 ? <JsonViewer data={parsed} />
-                : <pre style={PRE_STYLE}>{section.content}</pre>}
+                : <><CopyButton text={section.content} /><pre style={PRE_STYLE}>{section.content}</pre></>}
             </div>
           </div>
         );
@@ -103,11 +103,15 @@ function serializeDetail(detail: string | LogSection[] | undefined): string {
 
 export default function ConnectionLogPanel({ logs, onClear }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [expandedIdx, setExpandedIdx] = useState<Set<number>>(new Set());
   const [allCopied, setAllCopied] = useState(false);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const el = scrollRef.current;
+    if (!el) return;
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    if (isAtBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs.length]);
 
   const toggleExpand = (idx: number) => {
@@ -155,7 +159,7 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
       </div>
 
       {/* Log entries */}
-      <div style={{ flex: 1, overflowY: 'auto', fontFamily: 'var(--vscode-editor-font-family, monospace)', fontSize: 'var(--vscode-editor-font-size, 12px)' }}>
+      <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', fontFamily: 'var(--vscode-editor-font-family, monospace)', fontSize: 'var(--vscode-editor-font-size, 12px)' }}>
         {logs.length === 0 ? (
           <div style={{ padding: '20px 14px', color: 'var(--vscode-descriptionForeground)', fontSize: 12 }}>
             No log entries yet. Connect to a server to see diagnostic details.
@@ -234,10 +238,9 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
 
                 {/* Detail block (expanded) */}
                 {isExpanded && hasDetail && (
-                  <div className="json-viewer-wrap" style={{ margin: '0 14px 8px 70px' }}>
-                    <CopyButton text={serializeDetail(entry.detail)} />
+                  <div style={{ margin: '0 14px 8px 70px' }}>
                     {typeof entry.detail === 'string'
-                      ? <pre style={PRE_STYLE}>{entry.detail}</pre>
+                      ? <div className="json-viewer-wrap"><CopyButton text={entry.detail} /><pre style={PRE_STYLE}>{entry.detail}</pre></div>
                       : <DetailSections sections={entry.detail ?? []} />
                     }
                   </div>

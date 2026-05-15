@@ -38,28 +38,39 @@ Connect to any MCP server, browse its capabilities, call tools with live input f
 - **Auto-discovery** — automatically finds servers defined in `.vscode/mcp.json` or the `mcp.servers` workspace setting
 - **Manual registration** — add any server on the fly via the Add Server dialog
 - **All three transports** — `stdio`, SSE, and Streamable HTTP
-- **Capability indicators** — connected servers show at a glance whether they currently expose tools, resources, and prompts
+- **Capability indicators** — each connected server shows T / R / P badges: green = items available, dimmed = declared but empty, hidden = not supported
 
 ### Tools
 - Browse all tools exposed by a server with their descriptions and parameter schemas
-- **Form view** — auto-generated input form with type-aware fields (text, number, boolean toggle, enum select)
+- **Form view** — auto-generated input form with type-aware fields (text, number, boolean toggle, enum select), including nested object fields
 - **JSON view** — write raw JSON arguments with live validation hints (missing required fields, unknown properties)
-- Run tools and see syntax-highlighted results
+- Run tools and see syntax-highlighted results — press **Ctrl+Enter** to run without leaving the keyboard
+- **Filter** — a search bar appears above the tool list when a server exposes 10 or more tools
 - **Previous calls** — the last 6 calls per tool are shown inline with one-click re-run
+- The first available tool is automatically selected when a server connects
 
 ### Resources
 - List all resources and read their contents
 - Results rendered with syntax highlighting
+- **Filter** — a search bar appears when a server exposes 10 or more resources
 - Resource list updates can be refreshed automatically when the server emits `notifications/resources/list_changed`
 
 ### Prompts
 - Browse and render prompts with argument input support
+- **Filter** — a search bar appears when a server exposes 10 or more prompts
 - Prompt list updates can be refreshed automatically when the server emits `notifications/prompts/list_changed`
 
 ### Notifications & Events
 - A dedicated **Events** tab shows incoming server notifications such as logging messages, progress updates, resource updates, and list-change notifications
 - Related notifications can be visually grouped when they originate from the same server-side activity
 - Streamable HTTP servers can surface server-initiated events, including out-of-band notifications over the standalone SSE stream
+
+### Saved Tests
+- A dedicated **Tests** tab lets you save and replay tool calls as named test cases
+- Organise tests into named groups
+- Run individual tests or all tests in a group at once and see pass / fail results inline
+- Tests are saved to `mcp-tests.json` in the workspace root and automatically reloaded when the file changes
+- Supports both **Form view** and **JSON view** for test arguments — press **Ctrl+Enter** to run
 
 ### Request History
 - A dedicated **History** tab records every tool call, resource read, and prompt render
@@ -69,6 +80,9 @@ Connect to any MCP server, browse its capabilities, call tools with live input f
 ### Connection Diagnostics
 - A dedicated **Log** tab records MCP transport activity for troubleshooting
 - For HTTP-based servers, request and response details are captured to help diagnose initialization, fallback, auth, and notification-delivery issues
+- Actionable hints are shown for common errors (host not found, connection refused, TLS issues, HTTP 4xx/5xx, invalid URL scheme)
+- HTML error pages (e.g. IIS error responses) are automatically stripped to show only the relevant title
+- In-progress connections can be **cancelled** at any time with the Cancel button
 
 ### JSON Viewer
 - Syntax-highlighted JSON output (keys, strings, numbers, booleans, nulls each in distinct colours)
@@ -112,7 +126,11 @@ If your workspace has a `.vscode/mcp.json` file, servers are discovered automati
 
 ### Adding a Server Manually
 
-Click **+ Add Server** in the sidebar and fill in the connection details. Manually added servers persist for the lifetime of the VS Code window.
+Click **+ Add Server** in the sidebar and fill in the connection details:
+- **stdio** servers support `command`, `args` (quote arguments that contain spaces), `env`, and an optional working directory (`cwd`)
+- **HTTP / SSE** servers support a `url` and optional request `headers`
+
+Manually added servers persist for the lifetime of the VS Code window.
 
 ---
 

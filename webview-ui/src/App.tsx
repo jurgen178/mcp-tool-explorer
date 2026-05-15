@@ -496,7 +496,7 @@ export default function App() {
     postMessage({ type: 'removeServer', serverId });
   };
 
-  const handleAddServer = (config: McpServerConfig) => {
+  const handleAddServer = (config: Omit<McpServerConfig, 'id' | 'source'>) => {
     postMessage({ type: 'addServer', config });
     dispatch({ type: 'SHOW_ADD_SERVER', show: false });
   };
@@ -505,7 +505,7 @@ export default function App() {
     dispatch({ type: 'SHOW_EDIT_SERVER', server });
   };
 
-  const handleUpdateServer = (config: McpServerConfig) => {
+  const handleUpdateServer = (config: Omit<McpServerConfig, 'id' | 'source'>) => {
     postMessage({ type: 'updateServer', serverId: state.editingServer!.id, config });
     dispatch({ type: 'SHOW_EDIT_SERVER', server: null });
   };
@@ -535,8 +535,8 @@ export default function App() {
 
   const [pendingRerun, setPendingRerun] = React.useState<{ serverId: string | null; toolName: string; args: unknown } | null>(null);
 
-  let testReqCounter = 0;
-  const nextTestReqId = () => `testrun-${Date.now()}-${++testReqCounter}`;
+  const testReqCounterRef = React.useRef(0);
+  const nextTestReqId = () => `testrun-${Date.now()}-${++testReqCounterRef.current}`;
 
   const handleSaveTests = (tests: typeof state.tests, variables = state.testVariables) => {
     dispatch({ type: 'TESTS_LOADED', tests, variables });
@@ -804,8 +804,8 @@ export default function App() {
               </div>
             </div>
 
-            {/* Tab content */}
-            {state.activeTab === 'tools' && (
+            {/* Tab content — tools/resources/prompts stay mounted to preserve selection */}
+            <div style={state.activeTab !== 'tools' ? { display: 'none' } : { display: 'contents' }}>
               <ToolsPanel
                 key={`tools-${selectedServer.id}`}
                 serverId={selectedServer.id}
@@ -818,8 +818,8 @@ export default function App() {
                 onPendingRerunConsumed={() => setPendingRerun(null)}
                 onStartRequest={handleStartRequest}
               />
-            )}
-            {state.activeTab === 'resources' && (
+            </div>
+            <div style={state.activeTab !== 'resources' ? { display: 'none' } : { display: 'contents' }}>
               <ResourcesPanel
                 key={`resources-${selectedServer.id}`}
                 serverId={selectedServer.id}
@@ -829,8 +829,8 @@ export default function App() {
                 isConnected={isConnected}
                 onStartRequest={handleStartRequest}
               />
-            )}
-            {state.activeTab === 'prompts' && (
+            </div>
+            <div style={state.activeTab !== 'prompts' ? { display: 'none' } : { display: 'contents' }}>
               <PromptsPanel
                 key={`prompts-${selectedServer.id}`}
                 serverId={selectedServer.id}
@@ -840,7 +840,7 @@ export default function App() {
                 isConnected={isConnected}
                 onStartRequest={handleStartRequest}
               />
-            )}
+            </div>
             {state.activeTab === 'history' && (
               <HistoryPanel
                 key={`history-${selectedServer.id}`}
@@ -861,7 +861,7 @@ export default function App() {
                 onClear={() => dispatch({ type: 'CONNECTION_LOG_CLEAR', serverId: selectedServer.id })}
               />
             )}
-            {state.activeTab === 'tests' && (
+            <div style={state.activeTab !== 'tests' ? { display: 'none' } : { display: 'contents' }}>
               <TestsPanel
                 tests={state.tests}
                 servers={state.servers}
@@ -877,7 +877,7 @@ export default function App() {
                 onRunAll={handleRunAllTests}
                 onRunGroup={handleRunGroup}
               />
-            )}
+            </div>
           </>
         ) : (
           <div className="empty-state">

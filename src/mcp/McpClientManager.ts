@@ -38,6 +38,84 @@ interface RecentEventGroup {
   timestamp: number;
 }
 
+// ── Connection error diagnostics ───────────────────────────────────────────
+
+/** Walk the Error cause chain to find the root cause (max 5 levels). */
+function getRootCause(e: unknown, depth = 0): Error | undefined {
+  if (depth > 5 || !(e instanceof Error)) return undefined;
+  const cause = (e as { cause?: unknown }).cause;
+  if (cause instanceof Error) return getRootCause(cause, depth + 1) ?? cause;
+  return e;
+}
+
+/**
+ * When a server returns an HTML error page (e.g. IIS, nginx), the SDK embeds
+ * the full HTML in the error message. Extract just the <title> to keep things readable.
+ */
+function cleanErrorMessage(msg: string): string {
+  const htmlIdx = msg.search(/<(!DOCTYPE|html)/i);
+  if (htmlIdx === -1) return msg;
+  const prefix = msg.slice(0, htmlIdx).trimEnd();
+  const html = msg.slice(htmlIdx);
+  const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+  if (titleMatch) {
+    const title = titleMatch[1].trim();
+    return prefix ? `${prefix} [${title}]` : title;
+  }
+  // Fallback: strip tags
+  const stripped = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+  return prefix ? `${prefix} ${stripped}` : stripped;
+}
+
+/** Map Node.js error codes / messages to actionable hints for the user. */
+function getConnectionHint(e: unknown): string | undefined {
+  const root = getRootCause(e);
+  if (!root) return undefined;
+
+  const rawCode = (root as NodeJS.ErrnoException).code;
+  const code = typeof rawCode === 'string' ? rawCode : '';
+  const msg  = root.message.toLowerCase();
+
+  if (code === 'ECONNREFUSED')
+    return 'Connection refused — the server is not running or the port/URL is wrong.';
+  if (code === 'ENOTFOUND')
+    return 'Host not found — check the URL or hostname.';
+  if (code === 'ETIMEDOUT' || code === 'EHOSTUNREACH')
+    return 'Connection timed out — the server is not responding or is behind a firewall.';
+  if (code === 'ECONNRESET')
+    return 'Connection reset — the server closed the connection unexpectedly (may be overloaded or restarting).';
+  if (code === 'ENETUNREACH')
+    return 'Network unreachable — check your network connection.';
+  if (code === 'EACCES' || code === 'EPERM')
+    return 'Permission denied — check firewall or proxy settings.';
+  if (code === 'ENOENT')
+    return 'Command not found — check the server command path.';
+  if (code.startsWith('CERT_') || code === 'ERR_TLS_CERT_ALTNAME_INVALID' || msg.includes('certificate') || msg.includes('ssl'))
+    return 'SSL/TLS certificate error — the server\'s certificate may be self-signed, expired, or the hostname doesn\'t match.';
+
+  // StreamableHTTPError / SSEClientTransport: HTTP error posting to endpoint
+  if (msg.includes('error posting to endpoint')) {
+    const httpStatus = typeof (root as { code?: unknown }).code === 'number'
+      ? (root as { code: number }).code
+      : null;
+    if (httpStatus === 404) return 'Endpoint not found (HTTP 404) — check the URL path (e.g. add /mcp or verify the route).';
+    if (httpStatus === 401 || httpStatus === 403) return 'Authentication error (HTTP ' + httpStatus + ') — check credentials or authorization headers.';
+    if (httpStatus === 405) return 'Method not allowed (HTTP 405) — this URL may not be an MCP endpoint.';
+    if (httpStatus === 406) return 'Not acceptable (HTTP 406) — the server does not support the MCP content type. Check the URL path.';
+    if (httpStatus !== null && httpStatus >= 500) return `Server error (HTTP ${httpStatus}) — the server returned an internal error.`;
+    if (httpStatus !== null) return `HTTP ${httpStatus} error — check the URL and verify it points to an MCP endpoint.`;
+    return 'HTTP error posting to endpoint — check the URL and verify it points to an MCP server.';
+  }
+
+  if (msg.includes('unknown scheme') || msg.includes('unsupported protocol') || msg.includes('invalid url') || msg.includes('only absolute urls'))
+    return 'Invalid URL — check the protocol prefix (must be http:// or https://).';
+
+  if (msg === 'fetch failed' || msg.includes('failed to fetch'))
+    return 'Network error — the server is unreachable. Check the URL and make sure the server is running.';
+
+  return undefined;
+}
+
 export class McpClientManager {
   private readonly _connections = new Map<string, ActiveConnection>();
   private readonly _pendingConnects = new Map<string, AbortController>();
@@ -270,7 +348,7 @@ export class McpClientManager {
       return result;
     } catch (error: unknown) {
       const errorDetail = error instanceof Error
-        ? clampLogText([error.message, error.stack].filter(Boolean).join('\n\n'))
+        ? clampLogText(error.message)
         : clampLogText(String(error));
 
       this._log(serverId, 'error', `${label} failed after ${Date.now() - startedAt}ms`, [
@@ -380,9 +458,11 @@ export class McpClientManager {
         this._pendingConnects.delete(config.id);
         throw new Error('Connection cancelled');
       }
-      const baseMsg = e instanceof Error ? e.message : String(e);
-      const stack = e instanceof Error ? e.stack : undefined;
-      this._log(config.id, 'error', `${config.type.toUpperCase()} transport failed`, [baseMsg, stack ? `Stack: ${stack}` : ''].filter(Boolean).join('\n'));
+      const baseMsg = cleanErrorMessage(e instanceof Error ? e.message : String(e));
+      const hint = getConnectionHint(e);
+      const sections: LogSection[] = [{ kind: 'error', content: baseMsg }];
+      if (hint) sections.push({ kind: 'text', content: `Diagnosis: ${hint}` });
+      this._log(config.id, 'error', `${config.type.toUpperCase()} transport failed`, sections);
 
       // Fall back from Streamable HTTP to SSE (per MCP spec recommendation)
       if (config.type === 'http' && config.url) {
@@ -413,13 +493,20 @@ export class McpClientManager {
           }
           try { await sseClient.close(); } catch { /* ensure EventSource is stopped */ }
           const sseMsg = e2 instanceof Error ? e2.message : String(e2);
-          this._log(config.id, 'error', 'SSE transport also failed', sseMsg);
+          const sseHint = getConnectionHint(e2);
+          const sseSections: LogSection[] = [{ kind: 'error', content: sseMsg }];
+          if (sseHint) sseSections.push({ kind: 'text', content: `Diagnosis: ${sseHint}` });
+          this._log(config.id, 'error', 'SSE transport also failed', sseSections);
           // SSE also failed — fall through to throw the original error
         }
       }
 
-      const detail = stderrOutput.trim();
-      const fullError = detail ? `${baseMsg}\n\nServer stderr:\n${detail}` : baseMsg;
+      const stderrDetail = stderrOutput.trim();
+      const rootHint = hint ?? getConnectionHint(e);
+      const parts = [baseMsg];
+      if (rootHint) parts.push(`\nDiagnosis: ${rootHint}`);
+      if (stderrDetail) parts.push(`\n\nServer stderr:\n${stderrDetail}`);
+      const fullError = parts.join('');
       this._log(config.id, 'error', 'Connection failed', fullError);
       throw new Error(fullError);
     }

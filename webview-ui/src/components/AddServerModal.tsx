@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type { McpServerConfig } from '../types';
 
 interface Props {
-  onAdd: (config: McpServerConfig) => void;
+  onAdd: (config: Omit<McpServerConfig, 'id' | 'source'>) => void;
   onClose: () => void;
   /** When set, the dialog operates in edit mode for this server. */
   editServerId?: string;
@@ -21,11 +21,39 @@ export default function AddServerModal({ onAdd, onClose, editServerId, initialCo
   const [name, setName]     = useState(initialConfig?.name ?? '');
   const [type, setType]     = useState<ServerType>((initialConfig?.type as ServerType) ?? 'stdio');
   const [command, setCmd]   = useState(initialConfig?.command ?? '');
-  const [args, setArgs]     = useState((initialConfig?.args ?? []).join(' '));
+  const [args, setArgs]     = useState((initialConfig?.args ?? []).map(a => a.includes(' ') ? `"${a}"` : a).join(' '));
   const [env, setEnv]       = useState(kvLines(initialConfig?.env));
   const [url, setUrl]       = useState(initialConfig?.url ?? '');
   const [headers, setHdr]   = useState(kvLines(initialConfig?.headers));
+  const [cwd, setCwd]       = useState(initialConfig?.cwd ?? '');
   const [error, setError]   = useState('');
+
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [onClose]);
+
+  function parseArgs(raw: string): string[] {
+    const result: string[] = [];
+    let current = '';
+    let inQuote: '"' | "'" | null = null;
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw[i];
+      if (inQuote) {
+        if (ch === inQuote) { inQuote = null; }
+        else { current += ch; }
+      } else if (ch === '"' || ch === "'") {
+        inQuote = ch;
+      } else if (ch === ' ' || ch === '\t') {
+        if (current) { result.push(current); current = ''; }
+      } else {
+        current += ch;
+      }
+    }
+    if (current) result.push(current);
+    return result;
+  }
 
   function parseKvLines(raw: string): Record<string, string> {
     const result: Record<string, string> = {};
@@ -39,12 +67,24 @@ export default function AddServerModal({ onAdd, onClose, editServerId, initialCo
     return result;
   }
 
+  function validateKvLines(raw: string, fieldName: string): string | null {
+    const invalid = raw.split('\n')
+      .map(l => l.trim())
+      .filter(l => l && !l.includes('='));
+    if (invalid.length === 0) return null;
+    return `${fieldName}: "${invalid[0]}" is missing '=' (expected KEY=value format).`;
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError('');
 
     if (!name.trim()) { setError('Name is required.'); return; }
     if (type === 'stdio' && !command.trim()) { setError('Command is required for stdio servers.'); return; }
+    if (type === 'stdio') {
+      const envErr = validateKvLines(env, 'Environment Variables');
+      if (envErr) { setError(envErr); return; }
+    }
     if (type === 'sse' || type === 'http') {
       if (!url.trim()) { setError('URL is required.'); return; }
       try {
@@ -57,23 +97,30 @@ export default function AddServerModal({ onAdd, onClose, editServerId, initialCo
         setError('URL is not valid.');
         return;
       }
+      const hdrErr = validateKvLines(headers, 'Request Headers');
+      if (hdrErr) { setError(hdrErr); return; }
     }
 
     const config: Omit<McpServerConfig, 'id' | 'source'> = {
       name:    name.trim(),
       type,
       command: type === 'stdio' ? command.trim() : undefined,
-      args:    type === 'stdio' ? args.split(/\s+/).filter(Boolean) : undefined,
+      args:    type === 'stdio' ? parseArgs(args) : undefined,
       env:     type === 'stdio' ? parseKvLines(env) : undefined,
+      cwd:     type === 'stdio' && cwd.trim() ? cwd.trim() : undefined,
       url:     type !== 'stdio' ? url.trim() : undefined,
       headers: type !== 'stdio' ? parseKvLines(headers) : undefined,
     };
 
-    onAdd({ ...config, id: editServerId ?? '', source: 'manual' } as McpServerConfig);
+    onAdd(config);
   }
 
   return (
-    <div className="overlay" onClick={onClose}>
+    <div
+      className="overlay"
+      onMouseDown={e => { if (e.target === e.currentTarget) (e.currentTarget as HTMLDivElement).dataset.closeOnMouseUp = '1'; }}
+      onMouseUp={e => { if ((e.currentTarget as HTMLDivElement).dataset.closeOnMouseUp === '1' && e.target === e.currentTarget) onClose(); delete (e.currentTarget as HTMLDivElement).dataset.closeOnMouseUp; }}
+    >
       <div className="modal" onClick={e => e.stopPropagation()}>
         <div className="modal-title">{isEdit ? 'Edit MCP Server' : 'Add MCP Server'}</div>
 
@@ -82,11 +129,11 @@ export default function AddServerModal({ onAdd, onClose, editServerId, initialCo
           <div className="modal-row" style={{ marginBottom: 12 }}>
             <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
               <label className="form-label">Name<span className="req">*</span></label>
-              <input className="form-input" value={name} onChange={e => setName(e.target.value)} placeholder="my-server" autoFocus />
+              <input className="form-input" value={name} onChange={e => setName(e.target.value)} placeholder="my-server" autoFocus required />
             </div>
             <div className="form-group" style={{ width: 110, marginBottom: 0 }}>
               <label className="form-label">Transport</label>
-              <select className="form-select" value={type} onChange={e => setType(e.target.value as ServerType)}>
+              <select className="form-select" value={type} onChange={e => { setType(e.target.value as ServerType); setError(''); }}>
                 <option value="stdio">stdio</option>
                 <option value="http">HTTP (Streamable)</option>
                 <option value="sse">SSE (legacy)</option>
@@ -98,12 +145,17 @@ export default function AddServerModal({ onAdd, onClose, editServerId, initialCo
             <>
               <div className="form-group">
                 <label className="form-label">Command<span className="req">*</span></label>
-                <input className="form-input" value={command} onChange={e => setCmd(e.target.value)} placeholder="node" />
+                <input className="form-input" value={command} onChange={e => setCmd(e.target.value)} placeholder="node" required />
               </div>
               <div className="form-group">
                 <label className="form-label">Arguments</label>
                 <input className="form-input" value={args} onChange={e => setArgs(e.target.value)} placeholder="server.js --port 3000" />
-                <div className="form-hint">Space-separated argument list</div>
+                <div className="form-hint">Space-separated — use quotes for arguments with spaces, e.g. --name "foo bar"</div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Working Directory</label>
+                <input className="form-input" value={cwd} onChange={e => setCwd(e.target.value)} placeholder="/path/to/project (optional)" />
+                <div className="form-hint">Leave empty to use the VS Code workspace folder</div>
               </div>
               <div className="form-group">
                 <label className="form-label">Environment Variables</label>
@@ -118,7 +170,7 @@ export default function AddServerModal({ onAdd, onClose, editServerId, initialCo
               <div className="form-group">
                 <label className="form-label">URL<span className="req">*</span></label>
                 <input className="form-input" value={url} onChange={e => setUrl(e.target.value)}
-                  placeholder={type === 'sse' ? 'http://localhost:3000/sse' : 'http://localhost:3000/mcp'} />
+                  placeholder={type === 'sse' ? 'http://localhost:3000/sse' : 'http://localhost:3000/mcp'} required />
               </div>
               <div className="form-group">
                 <label className="form-label">Request Headers</label>
