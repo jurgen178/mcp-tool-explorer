@@ -92,7 +92,7 @@ export function MatrixRainOverlay({ onDismiss }: { onDismiss: () => void }) {
       // Show message after ~2 seconds
       if (frame > 60) {
         const title = 'YOU FOUND THE MCP MATRIX';
-        const sub = 'All tools are belong to us.';
+        const sub = 'All tools belong to us';
         const hint = '[click or press any key to exit]';
 
         ctx.font = 'bold 26px monospace';
