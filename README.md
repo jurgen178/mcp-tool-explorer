@@ -37,7 +37,7 @@ Connect to any MCP server, browse its capabilities, call tools with live input f
 ### Server Management
 - **Auto-discovery** — automatically finds servers defined in `.vscode/mcp.json` or the `mcp.servers` workspace setting
 - **Manual registration** — add any server on the fly via the Add Server dialog
-- **All three transports** — `stdio`, SSE, and Streamable HTTP
+- **All three transports** — `stdio`, `SSE`, and `Streamable HTTP`
 - **Capability indicators** — each connected server shows T / R / P badges: green = items available, dimmed = declared but empty, hidden = not supported
 
 ### Tools
