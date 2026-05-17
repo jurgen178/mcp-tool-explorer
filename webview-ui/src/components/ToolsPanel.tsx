@@ -15,6 +15,7 @@ interface Props {
   pendingRerun: { serverId: string | null; toolName: string; args: unknown } | null;
   onPendingRerunConsumed: () => void;
   onStartRequest: (id: string, info: RequestInfo) => void;
+  onSaveAsTest: (toolName: string, args: unknown) => void;
 }
 
 let reqCounter = 0;
@@ -78,7 +79,7 @@ function flattenArgs(obj: Record<string, unknown>, props: Record<string, SchemaP
 
 export default function ToolsPanel({
   serverId, tools, loadState, history, requests, isConnected,
-  pendingRerun, onPendingRerunConsumed, onStartRequest,
+  pendingRerun, onPendingRerunConsumed, onStartRequest, onSaveAsTest,
 }: Props) {
   const [selectedTool, setSelectedTool] = useState<McpTool | null>(null);
   const [search, setSearch] = useState('');
@@ -87,6 +88,7 @@ export default function ToolsPanel({
   const [useJson, setUseJson] = useState(false);
   const [lastReqIdByTool, setLastReqIdByTool] = useState<Record<string, string>>({});
   const [expandedPrev, setExpandedPrev] = useState<string | null>(null);
+  const [savedTestIds, setSavedTestIds] = useState<Set<string>>(new Set());
   const { listRef, handleRef } = usePanelResize({ storageKey: 'panel-list-width:tools' });
 
   const searchLower = search.toLowerCase();
@@ -160,6 +162,12 @@ export default function ToolsPanel({
     setLastReqIdByTool(prev => ({ ...prev, [selectedTool.name]: reqId }));
     onStartRequest(reqId, { type: 'tool', name: selectedTool.name, args });
     postMessage({ type: 'callTool', serverId, toolName: selectedTool.name, args, requestId: reqId });
+  };
+
+  const handleSaveAsTestEntry = (entryId: string, toolName: string, args: unknown) => {
+    onSaveAsTest(toolName, args);
+    setSavedTestIds(prev => new Set([...prev, entryId]));
+    setTimeout(() => setSavedTestIds(prev => { const next = new Set(prev); next.delete(entryId); return next; }), 1500);
   };
 
   const lastReqId = selectedTool ? (lastReqIdByTool[selectedTool.name] ?? null) : null;
@@ -326,6 +334,13 @@ export default function ToolsPanel({
                           title="Re-run with same arguments"
                           onClick={() => handleRun(entry.args as Record<string, unknown>)}
                         >↩ Re-run</button>
+                        <button
+                          className="btn btn-secondary prev-call-rerun"
+                          title="Save this call with its arguments to Tests"
+                          disabled={savedTestIds.has(entry.id)}
+                          style={savedTestIds.has(entry.id) ? { cursor: 'default' } : undefined}
+                          onClick={() => handleSaveAsTestEntry(entry.id, entry.name, entry.args)}
+                        >{savedTestIds.has(entry.id) ? '✓ Saved' : 'Save as test'}</button>
                       </div>
                       {exp && (
                         <div className="prev-call-body">

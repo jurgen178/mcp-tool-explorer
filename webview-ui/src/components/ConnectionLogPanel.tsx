@@ -55,6 +55,22 @@ const PRE_STYLE: React.CSSProperties = {
   margin: 0,
 };
 
+function Badge({ text, background }: { text: string; background?: string }) {
+  return (
+    <span style={{
+      fontSize: 10,
+      fontWeight: 600,
+      color: 'var(--vscode-badge-foreground, #fff)',
+      background: background ?? 'var(--vscode-badge-background, #4d4d4d)',
+      borderRadius: 3,
+      padding: '1px 5px',
+      verticalAlign: 'middle',
+    }}>
+      {text}
+    </span>
+  );
+}
+
 function DetailSections({ sections }: { sections: LogSection[] }) {
   const isJson = (kind: string) => kind === 'request' || kind === 'response';
   return (
@@ -214,21 +230,12 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
                     {messageParts ? (
                       <>
                         {messageParts.before}{' '}
-                        <span style={{
-                          fontSize: 10,
-                          fontWeight: 600,
-                          color: 'var(--vscode-badge-foreground, #fff)',
-                          background: 'var(--vscode-badge-background, #4d4d4d)',
-                          borderRadius: 3,
-                          padding: '1px 5px',
-                          verticalAlign: 'middle',
-                        }}>
-                          {messageParts.badge}
-                        </span>
+                        <Badge text={messageParts.badge} />
                         {' '}{messageParts.after}
                       </>
                     ) : entry.message}
                   </span>
+                  {isCapabilityList && <Badge text="Input schema" background="var(--vscode-charts-purple, #b267e6)" />}
                   {hasDetail && (
                     <span style={{ flexShrink: 0, fontSize: 10, color: 'var(--vscode-descriptionForeground)' }}>
                       {isExpanded ? '▼' : '▶'}

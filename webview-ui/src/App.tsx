@@ -544,6 +544,18 @@ export default function App() {
     postMessage({ type: 'saveTests', tests, variables });
   };
 
+  const handleSaveAsTest = (toolName: string, args: unknown) => {
+    const newTest: TestCase = {
+      id: `test-${Date.now()}`,
+      name: toolName,
+      serverId: state.selectedServerId ?? '',
+      toolName,
+      args: (args ?? {}) as Record<string, unknown>,
+      assertion: { type: 'no-error' },
+    };
+    handleSaveTests([...state.tests, newTest]);
+  };
+
   const handleSaveVariables = (variables: Record<string, string>) => {
     handleSaveTests(state.tests, variables);
   };
@@ -564,7 +576,9 @@ export default function App() {
   };
 
   const handleRunGroup = (group: string) => {
-    const testsToRun = state.tests.filter(t => t.group === group && !state.runningTestIds.includes(t.id));
+    const testsToRun = state.tests.filter(t =>
+      (group === '' ? !t.group : t.group === group) && !state.runningTestIds.includes(t.id)
+    );
     for (const test of testsToRun) {
       const requestId = nextTestReqId();
       dispatch({ type: 'TEST_RUN_START', testId: test.id, requestId });
@@ -822,6 +836,7 @@ export default function App() {
                 pendingRerun={pendingRerun}
                 onPendingRerunConsumed={() => setPendingRerun(null)}
                 onStartRequest={handleStartRequest}
+                onSaveAsTest={handleSaveAsTest}
               />
             </div>
             <div style={state.activeTab !== 'resources' ? { display: 'none' } : { display: 'contents' }}>
@@ -852,6 +867,7 @@ export default function App() {
                 history={state.history.filter(e => e.serverId === selectedServer.id)}
                 onClear={() => dispatch({ type: 'HISTORY_CLEAR', serverId: selectedServer.id })}
                 onRerun={(toolName, args) => handleRerun(toolName, args)}
+                onSaveAsTest={handleSaveAsTest}
               />
             )}
             {state.activeTab === 'events' && (

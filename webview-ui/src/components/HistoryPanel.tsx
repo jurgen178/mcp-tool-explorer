@@ -7,6 +7,7 @@ interface Props {
   history: HistoryEntry[];
   onClear: () => void;
   onRerun: (toolName: string, args: unknown) => void;
+  onSaveAsTest: (toolName: string, args: unknown) => void;
 }
 
 function timeAgo(ts: number): string {
@@ -23,8 +24,15 @@ const TYPE_ICON: Record<HistoryEntry['type'], string> = {
   prompt:   '💬',
 };
 
-export default function HistoryPanel({ history, onClear, onRerun }: Props) {
+export default function HistoryPanel({ history, onClear, onRerun, onSaveAsTest }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [savedTestIds, setSavedTestIds] = useState<Set<string>>(new Set());
+
+  const handleSaveAsTestEntry = (entryId: string, toolName: string, args: unknown) => {
+    onSaveAsTest(toolName, args);
+    setSavedTestIds(prev => new Set([...prev, entryId]));
+    setTimeout(() => setSavedTestIds(prev => { const next = new Set(prev); next.delete(entryId); return next; }), 1500);
+  };
 
   if (history.length === 0) {
     return (
@@ -44,8 +52,7 @@ export default function HistoryPanel({ history, onClear, onRerun }: Props) {
           {history.length} request{history.length !== 1 ? 's' : ''}
         </span>
         <button
-          className="btn btn-secondary"
-          id="history-clear-button"
+          className="btn btn-secondary history-clear-btn"
           onClick={onClear}
         >
           Clear
@@ -56,6 +63,7 @@ export default function HistoryPanel({ history, onClear, onRerun }: Props) {
         {history.map(entry => {
           const expanded = expandedId === entry.id;
           const isResultError = entry.isError || entry.status === 'error';
+          const isSaved = savedTestIds.has(entry.id);
 
           return (
             <div key={entry.id} className="history-item">
@@ -67,12 +75,12 @@ export default function HistoryPanel({ history, onClear, onRerun }: Props) {
                 <span className="history-name">{entry.name}</span>
 
                 {/* status */}
-                {entry.status === 'pending' && <span className="spinner history-spinner" />}
-                {entry.status !== 'pending' && (
-                  <span className={`history-status ${isResultError ? 'is-error' : 'is-ok'}`}>
-                    {isResultError ? '✗' : '✓'}
-                  </span>
-                )}
+                {entry.status === 'pending'
+                  ? <span className="spinner history-spinner" />
+                  : <span className={`history-status ${isResultError ? 'is-error' : 'is-ok'}`}>
+                      {isResultError ? '✗' : '✓'}
+                    </span>
+                }
 
                 {/* duration */}
                 {entry.durationMs !== undefined && (
@@ -82,13 +90,22 @@ export default function HistoryPanel({ history, onClear, onRerun }: Props) {
                 {/* time */}
                 <span className="history-time">{timeAgo(entry.timestamp)}</span>
 
-                {/* re-run (tools only) */}
+                {/* re-run + save (tools only) */}
                 {entry.type === 'tool' && entry.status !== 'pending' && (
-                  <button
-                    className="icon-btn history-rerun-btn"
-                    title="Re-run in Tools tab"
-                    onClick={e => { e.stopPropagation(); onRerun(entry.name, entry.args); }}
-                  >↩</button>
+                  <>
+                    <button
+                      className="btn btn-secondary history-action-btn"
+                      title="Re-run in Tools tab"
+                      onClick={e => { e.stopPropagation(); onRerun(entry.name, entry.args); }}
+                    >↩ Re-run</button>
+                    <button
+                      className="btn btn-secondary history-action-btn"
+                      title="Save this call with its arguments to Tests"
+                      disabled={isSaved}
+                      style={isSaved ? { cursor: 'default' } : undefined}
+                      onClick={e => { e.stopPropagation(); handleSaveAsTestEntry(entry.id, entry.name, entry.args); }}
+                    >{isSaved ? '✓ Saved' : 'Save as test'}</button>
+                  </>
                 )}
 
                 <span className="history-chevron">

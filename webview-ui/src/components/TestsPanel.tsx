@@ -343,6 +343,12 @@ export default function TestsPanel({
               <div className="tests-group">
                 <div className="tests-group-header tests-group-header-ungrouped">
                   <span className="tests-group-name">Other</span>
+                  <button
+                    className="tests-group-run-btn"
+                    onClick={() => onRunGroup('')}
+                    disabled={tests.filter(t => !t.group).some(t => runningTestIds.includes(t.id))}
+                    title="Run all ungrouped tests"
+                  >▶</button>
                 </div>
                 {tests.filter(t => !t.group).map(renderTestItem)}
               </div>
@@ -515,9 +521,10 @@ function TestEditor({ test, servers, serverStatus, tools, history, allGroups, re
 
   const handleImportHistory = (entry: HistoryEntry) => {
     const imported = (entry.args ?? {}) as Record<string, unknown>;
-    const json = JSON.stringify(imported, null, 2);
-    setArgsJson(json);
-    setUseJson(true);
+    setArgsJson(JSON.stringify(imported, null, 2));
+    if (!useJson && selectedTool) {
+      setFormValues(flattenArgs(imported, selectedTool.inputSchema?.properties ?? {}, ''));
+    }
     onChange({ ...test, args: imported });
     setShowHistory(false);
   };
@@ -633,7 +640,7 @@ function TestEditor({ test, servers, serverStatus, tools, history, allGroups, re
         <div className="test-args-header">
           <label className="form-label test-args-label">Arguments</label>
           <div className="test-args-toolbar">
-            {toolHistory.length > 0 && (
+            {toolHistory.length > 0 && hasFormFields && (
               <div className="test-history-import">
                 <button
                   className="btn btn-secondary test-history-btn"
