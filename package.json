@@ -2,7 +2,7 @@
   "name": "mcp-tool-explorer",
   "displayName": "MCP Tool Explorer",
   "description": "Inspect and test MCP servers: browse tools, resources, prompts, run calls, and review syntax-highlighted results and history.",
-  "version": "1.11.0",
+  "version": "1.12.0",
   "publisher": "jurgen178",
   "repository": {
     "type": "git",
