@@ -13,6 +13,20 @@
 		"bitfabrik.mcp": {
 		"url": "https://bitfabrik.io/mcp"
 		},
+		"map": {
+			"command": "npx",
+			"args": [
+				"-y",
+				"--silent",
+				"--registry=https://registry.npmjs.org/",
+				"@modelcontextprotocol/server-map",
+				"--stdio"
+			]
+		},
+		"budget-allocator": {
+			"command": "npx",
+			"args": ["-y", "@modelcontextprotocol/server-budget-allocator", "--stdio"]
+		},
 		"ado": {
 		"command": "agency",
 		"args": ["mcp", "ado"]

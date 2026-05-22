@@ -33,7 +33,7 @@ function emptyTest(serverId: string, toolName: string, group?: string): TestCase
   };
 }
 
-// ── Shared form helpers (mirrored from ToolsPanel) ──────────────────────────
+// Shared form helpers (mirrored from ToolsPanel)
 
 function buildObject(props: Record<string, SchemaProperty>, values: Record<string, string>, prefix: string): Record<string, unknown> {
   const args: Record<string, unknown> = {};
@@ -151,7 +151,7 @@ function ToolForm({ tool, values, onChange }: {
   );
 }
 
-// ── Assertion labels ──────────────────────────────────────────────────────────
+// Assertion labels
 
 const ASSERTION_LABELS: Record<TestAssertionType, string> = {
   'no-error': 'No error (just runs without error)',
@@ -169,7 +169,7 @@ function StatusIcon({ testId, results, running }: { testId: string; results: Rec
   return <span className="test-status-icon test-status-error" title="Error">!</span>;
 }
 
-// ── Variables editor ──────────────────────────────────────────────────────────
+// Variables editor
 
 function VariablesEditor({ variables, onSave }: {
   variables: Record<string, string>;
@@ -386,7 +386,7 @@ export default function TestsPanel({
   );
 }
 
-// ── TestEditor ────────────────────────────────────────────────────────────────
+// TestEditor
 
 interface EditorProps {
   test: TestCase;

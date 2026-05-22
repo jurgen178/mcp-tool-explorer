@@ -38,7 +38,7 @@ interface RecentEventGroup {
   timestamp: number;
 }
 
-// ── Connection error diagnostics ───────────────────────────────────────────
+// Connection error diagnostics
 
 /** Walk the Error cause chain to find the root cause (max 5 levels). */
 function getRootCause(e: unknown, depth = 0): Error | undefined {
@@ -420,7 +420,14 @@ export class McpClientManager {
 
     const client = new Client(
       { name: 'mcp-tool-explorer', version: this._version },
-      { capabilities: { logging: {} } as Record<string, unknown> },
+      {
+        capabilities: {
+          logging: {},
+          extensions: {
+            'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] },
+          },
+        } as Record<string, unknown>,
+      },
     );
 
     this._registerNotificationHandlers(client, config.id);
@@ -471,7 +478,14 @@ export class McpClientManager {
         this._log(config.id, 'info', 'Falling back to SSE transport');
         const sseClient = new Client(
           { name: 'mcp-tool-explorer', version: this._version },
-          { capabilities: { logging: {} } as Record<string, unknown> },
+          {
+            capabilities: {
+              logging: {},
+              extensions: {
+                'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] },
+              },
+            } as Record<string, unknown>,
+          },
         );
         this._registerNotificationHandlers(sseClient, config.id);
         const sseTransport = this._createTransport({ ...config, type: 'sse' });
@@ -709,7 +723,7 @@ export class McpClientManager {
     this._connections.clear();
   }
 
-  // ── Private helpers ───────────────────────────────────────────────────────
+  // Private helpers
 
   private _client(serverId: string): Client {
     const conn = this._connections.get(serverId);

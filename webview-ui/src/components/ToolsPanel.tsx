@@ -4,6 +4,7 @@ import { usePanelResize } from '../hooks/usePanelResize';
 import type { McpTool, SchemaProperty, InputSchema, RequestEntry, RequestInfo, HistoryEntry, CapabilityLoadState } from '../types';
 import JsonViewer from './JsonViewer';
 import ResultViewer from './ResultViewer';
+import McpAppViewer from './McpAppViewer';
 
 interface Props {
   serverId: string;
@@ -24,7 +25,7 @@ function toFieldId(prefix: string, name: string) {
   return `${prefix}-${name.replace(/[^a-zA-Z0-9_-]/g, '-')}`;
 }
 
-// ── JSON validation ───────────────────────────────────────────────────────────
+// JSON validation
 
 function validateJsonArgs(json: string, schema: InputSchema): { errors: string[]; warnings: string[] } {
   let parsed: unknown;
@@ -60,7 +61,7 @@ function validateJsonArgs(json: string, schema: InputSchema): { errors: string[]
   return { errors, warnings };
 }
 
-// ── Flatten parsed args into flat form-values (mirrors TestsPanel) ──────────────
+// Flatten parsed args into flat form-values (mirrors TestsPanel)
 function flattenArgs(obj: Record<string, unknown>, props: Record<string, SchemaProperty>, prefix: string): Record<string, string> {
   const fv: Record<string, string> = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -75,7 +76,7 @@ function flattenArgs(obj: Record<string, unknown>, props: Record<string, SchemaP
   return fv;
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// Component
 
 export default function ToolsPanel({
   serverId, tools, loadState, history, requests, isConnected,
@@ -87,6 +88,7 @@ export default function ToolsPanel({
   const [jsonArgs, setJsonArgs] = useState('{}');
   const [useJson, setUseJson] = useState(false);
   const [lastReqIdByTool, setLastReqIdByTool] = useState<Record<string, string>>({});
+  const [lastArgsByTool, setLastArgsByTool] = useState<Record<string, Record<string, unknown>>>({});
   const [expandedPrev, setExpandedPrev] = useState<string | null>(null);
   const [savedTestIds, setSavedTestIds] = useState<Set<string>>(new Set());
   const { listRef, handleRef } = usePanelResize({ storageKey: 'panel-list-width:tools' });
@@ -160,6 +162,7 @@ export default function ToolsPanel({
     }
     const reqId = nextReqId();
     setLastReqIdByTool(prev => ({ ...prev, [selectedTool.name]: reqId }));
+    setLastArgsByTool(prev => ({ ...prev, [selectedTool.name]: args }));
     onStartRequest(reqId, { type: 'tool', name: selectedTool.name, args });
     postMessage({ type: 'callTool', serverId, toolName: selectedTool.name, args, requestId: reqId });
   };
@@ -171,6 +174,7 @@ export default function ToolsPanel({
   };
 
   const lastReqId = selectedTool ? (lastReqIdByTool[selectedTool.name] ?? null) : null;
+  const lastArgs = selectedTool ? (lastArgsByTool[selectedTool.name] ?? {}) : {};
   const result = lastReqId ? requests[lastReqId] : undefined;
   const latestHistoryByTool = new Map<string, HistoryEntry>();
 
@@ -307,6 +311,15 @@ export default function ToolsPanel({
                   </span>
                 </div>
                 <ResultViewer data={result.data} isError={result.isError} />
+                {!result.isError && selectedTool._meta?.ui?.resourceUri && (
+                  <McpAppViewer
+                    serverId={serverId}
+                    resourceUri={selectedTool._meta.ui.resourceUri}
+                    toolArgs={lastArgs}
+                    toolResult={result.data}
+                    toolStructuredContent={result.structuredContent}
+                  />
+                )}
               </div>
             )}
 
@@ -374,7 +387,7 @@ export default function ToolsPanel({
   );
 }
 
-// ── ToolForm ──────────────────────────────────────────────────────────────────
+// ToolForm
 
 function buildObject(props: Record<string, SchemaProperty>, values: Record<string, string>, prefix: string): Record<string, unknown> {
   const args: Record<string, unknown> = {};
@@ -465,12 +478,13 @@ function FieldInput({ name, schema, isRequired, values, path, onChange }: FieldI
     </div>
   );
 
-  const isMultiline = schema.type === 'array' || !schema.type;
+  const MULTILINE_NAMES = new Set(['code', 'before', 'after', 'content', 'body', 'text', 'script', 'source', 'input', 'template']);
+  const isMultiline = schema.type === 'array' || !schema.type || MULTILINE_NAMES.has(name.toLowerCase());
   return (
     <div className="form-group">
       {label}
       {isMultiline
-        ? <textarea id={fieldId} className="form-textarea" value={value} onChange={e => onChange(path, e.target.value)} placeholder={schema.type === 'array' ? '["item1","item2"]' : '{"key":"value"}'} rows={3} title={name} />
+        ? <textarea id={fieldId} className="form-textarea" value={value} onChange={e => onChange(path, e.target.value)} placeholder={schema.type === 'array' ? '["item1","item2"]' : (schema.type === 'string' ? '' : '{"key":"value"}')} rows={schema.type === 'string' ? 6 : 3} title={name} />
         : <input id={fieldId} className="form-input" type={schema.type === 'number' || schema.type === 'integer' ? 'number' : 'text'} value={value} onChange={e => onChange(path, e.target.value)} placeholder={String(schema.default ?? '')} title={name} />
       }
       {schema.description && <div className="form-hint">{schema.description}</div>}

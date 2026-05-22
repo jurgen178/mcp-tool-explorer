@@ -1,4 +1,4 @@
-// ── Result interpretation pipeline ───────────────────────────────────────────
+// Result interpretation pipeline
 //
 // Each interpreter inspects the raw MCP result and, if it recognises the
 // format, returns a structured interpretation that the UI can render in a
@@ -16,7 +16,7 @@ export interface ResultInterpretation {
 
 type Interpreter = (raw: unknown) => ResultInterpretation | null;
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// Helpers
 
 function isMcpContentArray(raw: unknown): raw is Array<{ type: string; text?: string; data?: string; mimeType?: string }> {
   return (
@@ -25,7 +25,7 @@ function isMcpContentArray(raw: unknown): raw is Array<{ type: string; text?: st
   );
 }
 
-// ── Text interpreter ─────────────────────────────────────────────────────────
+// Text interpreter
 // Collects all text content items into a single "Text" tab.
 
 function isJsonObjectOrArray(text: string): boolean {
@@ -88,7 +88,7 @@ function tryTextInterpreter(raw: unknown): ResultInterpretation | null {
   return { id: 'text', label: 'Text', data: texts };
 }
 
-// ── Image interpreter ─────────────────────────────────────────────────────────
+// Image interpreter
 // Collects all image content items into a single "Image" tab.
 
 export interface ImageItem { data: string; mimeType: string; }
@@ -102,7 +102,7 @@ function tryImageInterpreter(raw: unknown): ResultInterpretation | null {
   return { id: 'image', label: 'Image', data: images };
 }
 
-// ── JSON interpreter ──────────────────────────────────────────────────────────
+// JSON interpreter
 // Matches when the result is a single MCP text content item whose text value
 // is a valid JSON object or array.
 
@@ -123,7 +123,7 @@ function tryJsonInterpreter(raw: unknown): ResultInterpretation | null {
   }
 }
 
-// ── HTML interpreter ─────────────────────────────────────────────────────────
+// HTML interpreter
 // Finds string values that contain an HTML <body> fragment anywhere in the
 // result (including inside parsed JSON strings) and collects them for a
 // dedicated sandboxed HTML preview tab.
@@ -172,7 +172,7 @@ function tryHtmlInterpreter(raw: unknown): ResultInterpretation | null {
   return { id: 'html', label: 'HTML', data: htmlFragments };
 }
 
-// ── Registry ──────────────────────────────────────────────────────────────────
+// Registry
 // Add new interpreters here as additional formats are supported.
 
 const INTERPRETERS: Interpreter[] = [

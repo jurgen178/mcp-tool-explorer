@@ -19,6 +19,12 @@ export interface McpTool {
   name: string;
   description?: string;
   inputSchema: InputSchema;
+  _meta?: {
+    ui?: {
+      resourceUri?: string;
+      visibility?: Array<'model' | 'app'>;
+    };
+  };
 }
 
 export interface InputSchema {
@@ -83,7 +89,7 @@ export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'er
 export type CapabilityKind = 'tools' | 'resources' | 'prompts';
 export type CapabilityLoadState = 'idle' | 'loading' | 'loaded' | 'error';
 
-// ── Test Cases ────────────────────────────────────────────────────────────────
+// Test Cases
 
 export type TestAssertionType = 'no-error' | 'contains' | 'equals' | 'json-path';
 
@@ -123,6 +129,7 @@ export interface RequestEntry {
   data?: unknown;
   isError?: boolean;
   errorMsg?: string;
+  structuredContent?: unknown;
 }
 
 export interface RequestInfo {
@@ -141,7 +148,7 @@ export interface HistoryEntry extends RequestInfo {
   isError?: boolean;
 }
 
-// ── Messages: Webview → Extension ──────────────────────────────────────────
+// Messages: Webview → Extension
 
 export type MessageToExtension =
   | { type: 'getServers' }
@@ -161,9 +168,10 @@ export type MessageToExtension =
   | { type: 'loadTests' }
   | { type: 'saveTests'; tests: TestCase[]; variables: Record<string, string> }
   | { type: 'runTest'; test: TestCase; requestId: string; variables: Record<string, string> }
-  | { type: 'openExternal'; url: string };
+  | { type: 'openExternal'; url: string }
+  | { type: 'fetchUiResource'; serverId: string; uri: string; requestId: string };
 
-// ── Messages: Extension → Webview ──────────────────────────────────────────
+// Messages: Extension → Webview
 
 export type MessageToWebview =
   | { type: 'serversLoaded'; servers: McpServerConfig[] }
@@ -177,7 +185,7 @@ export type MessageToWebview =
   | { type: 'connectionError'; serverId: string; error: string }
   | { type: 'capabilityLoadFailed'; serverId: string; capability: CapabilityKind; error: string }
   | { type: 'toolsListed'; serverId: string; tools: McpTool[] }
-  | { type: 'toolResult'; requestId: string; result: unknown; isError: boolean }
+  | { type: 'toolResult'; requestId: string; result: unknown; isError: boolean; structuredContent?: unknown }
   | { type: 'resourcesListed'; serverId: string; resources: McpResource[] }
   | { type: 'resourceContent'; requestId: string; content: unknown }
   | { type: 'promptsListed'; serverId: string; prompts: McpPrompt[] }
@@ -186,4 +194,5 @@ export type MessageToWebview =
   | { type: 'connectionLog'; serverId: string; log: { timestamp: number; level: 'info' | 'warn' | 'error'; message: string; detail?: string | { kind: 'request' | 'response' | 'request-headers' | 'response-headers' | 'error' | 'text'; content: string }[] } }
   | { type: 'testsLoaded'; tests: TestCase[]; variables: Record<string, string> }
   | { type: 'testRunResult'; requestId: string; result: TestRunResult }
+  | { type: 'uiResourceContent'; requestId: string; html: string; csp?: { connectDomains?: string[]; resourceDomains?: string[]; frameDomains?: string[] } }
   | { type: 'error'; message: string; requestId?: string };

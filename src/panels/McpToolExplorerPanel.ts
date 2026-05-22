@@ -19,7 +19,7 @@ export class McpToolExplorerPanel {
   /** Timestamp until which file-watcher events for the test file should be ignored (avoids echo after own writes). */
   private _ignoreWatcherUntil = 0;
 
-  // ── Static factory ────────────────────────────────────────────────────────
+  // Static factory
 
   public static createOrShow(context: vscode.ExtensionContext): void {
     const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
@@ -47,7 +47,7 @@ export class McpToolExplorerPanel {
     McpToolExplorerPanel.currentPanel?._sendServers();
   }
 
-  // ── Constructor ───────────────────────────────────────────────────────────
+  // Constructor
 
   private constructor(panel: vscode.WebviewPanel, context: vscode.ExtensionContext) {
     this._panel = panel;
@@ -76,7 +76,7 @@ export class McpToolExplorerPanel {
     this._disposables.push(testWatcher);
   }
 
-  // ── Message handling ──────────────────────────────────────────────────────
+  // Message handling
 
   private async _handleMessage(message: MessageToExtension): Promise<void> {
     try {
@@ -159,6 +159,8 @@ export class McpToolExplorerPanel {
           // own interpretation pipeline for raw, text, image, and JSON results.
           result: result.content,
           isError: result.isError === true,
+          // Structured output for MCP Apps UIs (ui://), added in MCP spec 2026-01-26.
+          structuredContent: (result as Record<string, unknown>).structuredContent,
         });
         break;
       }
@@ -258,6 +260,24 @@ export class McpToolExplorerPanel {
         break;
       }
 
+      case 'fetchUiResource': {
+        const result = await this._clientManager.readResource(message.serverId, message.uri);
+        const content = result.contents?.[0];
+        const html = content && 'text' in content && typeof content.text === 'string' ? content.text : undefined;
+        if (!html) {
+          this._post({ type: 'error', message: `UI resource "${message.uri}" returned no HTML content`, requestId: message.requestId });
+          break;
+        }
+        const uiMeta = (content as { _meta?: { ui?: { csp?: { connectDomains?: string[]; resourceDomains?: string[]; frameDomains?: string[] } } } })?._meta?.ui;
+        this._post({
+          type: 'uiResourceContent',
+          requestId: message.requestId,
+          html,
+          csp: uiMeta?.csp,
+        });
+        break;
+      }
+
       case 'runTest': {
         const { test, requestId, variables } = message;
         const start = Date.now();
@@ -286,7 +306,7 @@ export class McpToolExplorerPanel {
     }
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // Helpers
   private _getTestFilePath(): string | undefined {
     const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     return folder ? path.join(folder, 'mcp-tests.json') : undefined;
@@ -404,7 +424,7 @@ export class McpToolExplorerPanel {
     this._panel.webview.postMessage(message);
   }
 
-  // ── HTML generation ───────────────────────────────────────────────────────
+  // HTML generation
 
   private _buildHtml(): string {
     const webviewDist = vscode.Uri.joinPath(this._extensionUri, 'dist', 'webview');
@@ -447,7 +467,7 @@ export class McpToolExplorerPanel {
     </body></html>`;
   }
 
-  // ── Lifecycle ─────────────────────────────────────────────────────────────
+  // Lifecycle
 
   public dispose(): void {
     McpToolExplorerPanel.currentPanel = undefined;
@@ -459,7 +479,7 @@ export class McpToolExplorerPanel {
   }
 }
 
-// ── Test assertion evaluation (module-level) ──────────────────────────────────
+// Test assertion evaluation (module-level)
 
 function _evaluateAssertion(
   assertion: TestAssertion,

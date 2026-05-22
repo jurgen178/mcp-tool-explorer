@@ -104,7 +104,7 @@ export class McpConfigDiscovery {
     }
   }
 
-  // ── Private ───────────────────────────────────────────────────────────────
+  // Private
 
   private async _persist(server: McpServerConfig): Promise<void> {
     if (server.env && Object.keys(server.env).length > 0) {

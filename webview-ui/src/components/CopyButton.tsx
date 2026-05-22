@@ -11,7 +11,7 @@ export default function CopyButton({ text }: Props) {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    });
+    }).catch(() => { /* clipboard access denied – silently ignore */ });
   }, [text]);
 
   return (

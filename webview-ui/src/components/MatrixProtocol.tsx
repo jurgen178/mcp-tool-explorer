@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { postMessage } from '../vscode';
 
-// ── Konami Code hook ──────────────────────────────────────────────────────────
+// Konami Code hook
 // Up Up Down Down Left Right Left Right B A
 
 const KONAMI_SEQUENCE = [
@@ -29,7 +29,7 @@ export function useKonamiCode(onMatch: () => void) {
   }, []);
 }
 
-// ── Matrix Rain overlay ───────────────────────────────────────────────────────
+// Matrix Rain overlay
 
 const MATRIX_CHARS = 'アイウエオカキクケコサシスセソタチツテトナニヌネノハヒフヘホマミムメモヤユヨラリルレロワヲン0123456789ABCDEF';
 
@@ -144,7 +144,7 @@ export function MatrixRainOverlay({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
-// ── "42" Douglas Adams toast ──────────────────────────────────────────────────
+// "42" Douglas Adams toast
 
 export function FortyTwoToast() {
   const [visible, setVisible] = useState(true);
@@ -162,7 +162,7 @@ export function FortyTwoToast() {
   );
 }
 
-// ── Confetti + GitHub star overlay ────────────────────────────────────────────
+// Confetti + GitHub star overlay
 
 const CONFETTI_COLORS = ['#ff6b6b', '#ffd93d', '#6bcb77', '#4d96ff', '#c77dff', '#f8961e', '#00bbf9', '#ff9f1c'];
 

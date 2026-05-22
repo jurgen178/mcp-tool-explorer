@@ -17,7 +17,7 @@ import AddServerModal from './components/AddServerModal';
 import CopyButton from './components/CopyButton';
 import { useKonamiCode, MatrixRainOverlay } from './components/MatrixProtocol';
 
-// ── State & Reducer ──────────────────────────────────────────────────────────
+// State & Reducer
 
 export interface LogSection {
   kind: 'request' | 'response' | 'request-headers' | 'response-headers' | 'error' | 'text';
@@ -90,7 +90,7 @@ type Action =
   | { type: 'TOOLS_LISTED'; serverId: string; tools: McpTool[] }
   | { type: 'RESOURCES_LISTED'; serverId: string; resources: McpResource[] }
   | { type: 'PROMPTS_LISTED'; serverId: string; prompts: McpPrompt[] }
-  | { type: 'REQUEST_DONE'; requestId: string; data: unknown; isError: boolean }
+  | { type: 'REQUEST_DONE'; requestId: string; data: unknown; isError: boolean; structuredContent?: unknown }
   | { type: 'REQUEST_STARTED'; requestId: string }
   | { type: 'SELECT_SERVER'; serverId: string }
   | { type: 'SELECT_TAB'; tab: 'tools' | 'resources' | 'prompts' | 'history' | 'events' | 'log' | 'tests' }
@@ -335,7 +335,7 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         requests: {
           ...state.requests,
-          [action.requestId]: { status: action.isError ? 'error' : 'done', data: action.data, isError: action.isError },
+          [action.requestId]: { status: action.isError ? 'error' : 'done', data: action.data, isError: action.isError, structuredContent: action.structuredContent },
         },
       };
 
@@ -413,12 +413,12 @@ function reducer(state: AppState, action: Action): AppState {
   }
 }
 
-// ── Component ────────────────────────────────────────────────────────────────
+// Component
 
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  // ── Message listener ────────────────────────────────────────────────────
+  // Message listener
 
   useEffect(() => {
     const handler = (event: MessageEvent<MessageToWebview>) => {
@@ -446,7 +446,8 @@ export default function App() {
             ? { data: msg.result, isError: msg.isError }
             : normalizeRequestPayload(payload);
           const { data, isError } = normalized;
-          dispatch({ type: 'REQUEST_DONE', requestId: msg.requestId, data, isError });
+          const structuredContent = msg.type === 'toolResult' ? msg.structuredContent : undefined;
+          dispatch({ type: 'REQUEST_DONE', requestId: msg.requestId, data, isError, structuredContent });
           dispatch({ type: 'HISTORY_UPDATE', id: msg.requestId, status: isError ? 'error' : 'done', result: data, isError });
           break;
         }
@@ -470,7 +471,7 @@ export default function App() {
     return () => window.removeEventListener('message', handler);
   }, []);
 
-  // ── Actions ─────────────────────────────────────────────────────────────
+  // Actions
 
   const handleConnect = (serverId: string) => {
     // Start each connection attempt with a fresh log so transport diagnostics are
@@ -699,7 +700,7 @@ export default function App() {
     };
   }, []);
 
-  // ── Selected server data ─────────────────────────────────────────────────
+  // Selected server data
 
   const selectedServer = state.servers.find(s => s.id === state.selectedServerId) ?? null;
   const selectedStatus = state.selectedServerId ? (state.serverStatus[state.selectedServerId] ?? 'disconnected') : 'disconnected';

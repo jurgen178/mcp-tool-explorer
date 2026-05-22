@@ -3,6 +3,7 @@ import { postMessage } from '../vscode';
 import { usePanelResize } from '../hooks/usePanelResize';
 import type { McpPrompt, RequestEntry, RequestInfo, CapabilityLoadState, MessageToWebview } from '../types';
 import JsonViewer from './JsonViewer';
+import CopyButton from './CopyButton';
 import { extractTextValues } from '../resultInterpreters';
 
 interface Props {
@@ -313,7 +314,10 @@ export default function PromptsPanel({ serverId, prompts, loadState, requests, i
                 {activeResultTab === 'text' && textResults.length > 0 ? (
                   <div className="text-result-list">
                     {textResults.map((text, index) => (
-                      <pre key={index} className="text-result">{text}</pre>
+                      <div key={index} className="text-result-wrapper">
+                        <pre className="text-result">{text}</pre>
+                        <CopyButton text={text} />
+                      </div>
                     ))}
                   </div>
                 ) : (

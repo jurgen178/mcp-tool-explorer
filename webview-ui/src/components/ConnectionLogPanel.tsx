@@ -38,7 +38,7 @@ const SECTION_LABEL_COLORS: Record<string, string> = {
   'text':             'var(--vscode-descriptionForeground)',
 };
 
-// ── Section renderer ───────────────────────────────────────────────────────
+// Section renderer
 
 const PRE_STYLE: React.CSSProperties = {
   padding: '6px 10px',
@@ -106,7 +106,7 @@ function DetailSections({ sections }: { sections: LogSection[] }) {
   );
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// Helpers
 
 function serializeDetail(detail: string | LogSection[] | undefined): string {
   if (!detail) return '';
@@ -115,7 +115,7 @@ function serializeDetail(detail: string | LogSection[] | undefined): string {
   return detail.map(s => `[${SECTION_LABELS[s.kind] ?? s.kind}]\n${s.content}`).join('\n\n');
 }
 
-// ── Main component ─────────────────────────────────────────────────────────
+// Main component
 
 export default function ConnectionLogPanel({ logs, onClear }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
