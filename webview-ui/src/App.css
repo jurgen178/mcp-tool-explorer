@@ -385,6 +385,19 @@ body {
 
 .list-item-name { font-size: 13px; font-weight: 500; }
 .list-item-sub  { font-size: 11px; color: var(--vscode-descriptionForeground); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-top: 2px; }
+.mcp-app-badge {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--vscode-badge-foreground, #fff);
+  background: var(--vscode-badge-background, #4d9ee4);
+  border-radius: 3px;
+  padding: 1px 5px;
+  line-height: 1.5;
+}
+
 .tool-list-running {
   display: inline-flex;
   align-items: center;

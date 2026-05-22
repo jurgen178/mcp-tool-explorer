@@ -228,6 +228,9 @@ export default function ToolsPanel({
           >
             <div className="tool-list-item-header">
               <div className="list-item-name">{tool.name}</div>
+              {tool._meta?.ui?.resourceUri && (
+                <span className="mcp-app-badge" title="Opens an interactive UI">MCP App</span>
+              )}
               {latestHistoryByTool.get(tool.name)?.status === 'pending' && (
                 <span className="tool-list-running" title="Request is still running">
                   <span className="spinner tool-list-running-spinner" />

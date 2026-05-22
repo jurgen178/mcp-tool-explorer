@@ -36,11 +36,54 @@ function buildCsp(csp: CspMeta | undefined): string {
     `img-src 'self' data: ${resources}`.trimEnd(),
     `font-src 'self' ${resources}`.trimEnd(),
     `media-src 'self' data: ${resources}`.trimEnd(),
-    `connect-src 'self' ${connect}`.trimEnd(),
+    `connect-src ${connect || "'none'"}`,
     `frame-src ${frames}`,
     "object-src 'none'",
     "base-uri 'self'",
   ].join('; ');
+}
+
+/**
+ * Reads VS Code CSS variables from the webview DOM and returns a <style> tag
+ * that exposes them as --mcp-* custom properties for MCP App iframes.
+ * Also injects light-mode token colour overrides when not in dark theme.
+ */
+function getThemeStyleTag(): string {
+  const cs = getComputedStyle(document.body);
+  const get = (v: string, fb: string) => cs.getPropertyValue(v).trim() || fb;
+  const dark = document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast');
+  const vars = [
+    `--mcp-bg:${get('--vscode-editor-background', dark ? '#0d1117' : '#ffffff')}`,
+    `--mcp-fg:${get('--vscode-editor-foreground', dark ? '#e6edf3' : '#24292f')}`,
+    `--mcp-bg2:${get('--vscode-sideBar-background', dark ? '#161b22' : '#f6f8fa')}`,
+    `--mcp-border:${get('--vscode-panel-border', dark ? '#30363d' : '#d0d7de')}`,
+    `--mcp-border2:${get('--vscode-editorWidget-border', dark ? '#21262d' : '#e1e4e8')}`,
+    `--mcp-accent:${get('--vscode-focusBorder', dark ? '#388bfd' : '#0969da')}`,
+    `--mcp-muted:${get('--vscode-descriptionForeground', dark ? '#8b949e' : '#656d76')}`,
+    `--mcp-muted2:${get('--vscode-disabledForeground', dark ? '#484f58' : '#8c959f')}`,
+    `--mcp-input-bg:${get('--vscode-input-background', dark ? '#161b22' : '#ffffff')}`,
+    `--mcp-input-fg:${get('--vscode-input-foreground', dark ? '#e6edf3' : '#24292f')}`,
+    `--mcp-input-border:${get('--vscode-input-border', dark ? '#30363d' : '#d0d7de')}`,
+    `--mcp-green:${get('--vscode-gitDecoration-addedResourceForeground', dark ? '#3fb950' : '#1a7f37')}`,
+    `--mcp-red:${get('--vscode-errorForeground', dark ? '#f85149' : '#cf222e')}`,
+    `--mcp-diff-add:${get('--vscode-diffEditor-insertedLineBackground', dark ? 'rgba(46,160,67,.12)' : 'rgba(26,127,55,.1)')}`,
+    `--mcp-diff-rem:${get('--vscode-diffEditor-removedLineBackground', dark ? 'rgba(248,81,73,.12)' : 'rgba(207,34,46,.1)')}`,
+    `--mcp-diff-add-hl:${get('--vscode-diffEditor-insertedTextBackground', dark ? 'rgba(46,160,67,.45)' : 'rgba(26,127,55,.35)')}`,
+    `--mcp-diff-rem-hl:${get('--vscode-diffEditor-removedTextBackground', dark ? 'rgba(248,81,73,.45)' : 'rgba(207,34,46,.35)')}`,
+  ].join(';');
+  // Light-mode token badge overrides (the dark solid backgrounds are replaced with pastel variants)
+  const lightTokens = dark ? '' :
+    '.t-literal{background:rgba(9,105,218,.12);color:#0550ae}' +
+    '.t-anchor{background:rgba(130,80,223,.12);color:#6639ba}' +
+    '.t-wildcard{background:rgba(207,67,0,.12);color:#bc4c00}' +
+    '.t-charClass{background:rgba(26,127,55,.12);color:#1a7f37}' +
+    '.t-group{background:rgba(31,136,161,.12);color:#1f7a8c}' +
+    '.t-quantifier{background:rgba(191,135,0,.12);color:#744500}' +
+    '.t-escape{background:rgba(217,31,112,.12);color:#b22c5e}' +
+    '.t-alternation{background:rgba(100,110,120,.12);color:#575e68}' +
+    '.decl{color:#0550ae}.expr{color:#1a7f37}.stmt{color:#bc4c00}.lit{color:#6639ba}.nm{color:#744500}.tx{color:#0550ae}' +
+    '.children{border-left-color:var(--mcp-border2,#d0d7de)}';
+  return `<style>:root{${vars}}${lightTokens}</style>`;
 }
 
 /**
@@ -50,10 +93,12 @@ function buildCsp(csp: CspMeta | undefined): string {
  */
 function prepareHtml(html: string, csp: CspMeta | undefined): string {
   const cspTag = `<meta http-equiv="Content-Security-Policy" content="${buildCsp(csp)}">`;
+  const themeStyle = getThemeStyleTag();
+  const inject = `${cspTag}\n  ${themeStyle}`;
   if (/<head[\s>]/i.test(html)) {
-    return html.replace(/(<head[^>]*>)/i, `$1\n  ${cspTag}`);
+    return html.replace(/(<head[^>]*>)/i, `$1\n  ${inject}`);
   }
-  return cspTag + '\n' + html;
+  return inject + '\n' + html;
 }
 
 export default function McpAppViewer({ serverId, resourceUri, toolArgs, toolResult, toolStructuredContent }: Props) {
@@ -66,6 +111,9 @@ export default function McpAppViewer({ serverId, resourceUri, toolArgs, toolResu
   // handshake. Used to push updated tool data directly on re-runs without waiting
   // for ui/notifications/initialized to fire again.
   const appInitializedRef = useRef(false);
+  // Tracks the last tool data sent to the iframe. Compared by reference to avoid
+  // duplicate pushes when the parent re-renders without changing tool data.
+  const prevToolDataRef = useRef<{ args: unknown; result: unknown; sc: unknown } | null>(null);
 
   // Fetch the UI resource HTML from the extension
   useEffect(() => {
@@ -96,6 +144,7 @@ export default function McpAppViewer({ serverId, resourceUri, toolArgs, toolResu
     const iframe = iframeRef.current;
     if (iframe) {
       appInitializedRef.current = false; // iframe reloads → full handshake required again
+      prevToolDataRef.current = null;
       iframe.srcdoc = prepareHtml(html.content, html.csp);
     }
   }, [html]);
@@ -122,9 +171,15 @@ export default function McpAppViewer({ serverId, resourceUri, toolArgs, toolResu
     // If the iframe has already completed the initialization handshake (e.g. the
     // tool was re-run and toolResult changed), push the new data directly without
     // waiting for ui/notifications/initialized to fire again.
+    // Guard by reference equality to avoid duplicate pushes when the parent
+    // re-renders without actually changing tool data.
     if (appInitializedRef.current) {
-      sendToIframe({ jsonrpc: '2.0', method: 'ui/notifications/tool-input', params: { arguments: toolArgs } });
-      sendToIframe({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { content: Array.isArray(toolResult) ? toolResult : [], isError: false, ...(toolStructuredContent !== undefined ? { structuredContent: toolStructuredContent } : {}) } });
+      const prev = prevToolDataRef.current;
+      if (!prev || prev.args !== toolArgs || prev.result !== toolResult || prev.sc !== toolStructuredContent) {
+        prevToolDataRef.current = { args: toolArgs, result: toolResult, sc: toolStructuredContent };
+        sendToIframe({ jsonrpc: '2.0', method: 'ui/notifications/tool-input', params: { arguments: toolArgs } });
+        sendToIframe({ jsonrpc: '2.0', method: 'ui/notifications/tool-result', params: { content: Array.isArray(toolResult) ? toolResult : [], isError: false, ...(toolStructuredContent !== undefined ? { structuredContent: toolStructuredContent } : {}) } });
+      }
     }
 
     function handleIframeMessage(event: MessageEvent) {
@@ -155,13 +210,14 @@ export default function McpAppViewer({ serverId, resourceUri, toolArgs, toolResu
 
       // MCP Apps ui/initialize
       if (method === 'ui/initialize' && id !== undefined) {
+        const isDark = document.body.classList.contains('vscode-dark') || document.body.classList.contains('vscode-high-contrast');
         sendToIframe({
           jsonrpc: '2.0', id,
           result: {
             protocolVersion: '2026-01-26',
             hostCapabilities: { serverTools: {}, serverResources: {}, logging: {} },
             hostInfo: { name: 'mcp-tool-explorer', version: '1.0.0' },
-            hostContext: { theme: 'dark', platform: 'desktop', displayMode: 'inline' },
+            hostContext: { theme: isDark ? 'dark' : 'light', platform: 'desktop', displayMode: 'inline' },
           },
         });
         return;
@@ -170,6 +226,7 @@ export default function McpAppViewer({ serverId, resourceUri, toolArgs, toolResu
       // View signals it is fully initialized → send tool data
       if (method === 'ui/notifications/initialized') {
         appInitializedRef.current = true;
+        prevToolDataRef.current = { args: toolArgs, result: toolResult, sc: toolStructuredContent };
         sendToIframe({ jsonrpc: '2.0', method: 'ui/notifications/tool-input', params: { arguments: toolArgs } });
         // toolResult is the raw MCP content array; wrap it into the CallToolResult shape the SDK expects.
         // Include structuredContent if the server provided it (MCP spec 2026-01-26).
