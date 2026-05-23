@@ -140,6 +140,7 @@ export default function ToolsPanel({
     setFormValues({});
     setJsonArgs('{}');
     setExpandedPrev(null);
+    setLastReqIdByTool(prev => { const { [tool.name]: _, ...rest } = prev; return rest; });
   };
 
   const handleRun = (argsOverride?: Record<string, unknown>) => {
