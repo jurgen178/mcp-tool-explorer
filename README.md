@@ -4,7 +4,7 @@ A VS Code extension for inspecting and testing [Model Context Protocol (MCP)](ht
 
 Connect to any MCP server, browse its capabilities, call tools with live input forms, read resources, render prompts, inspect notifications, and review connection traffic. All without leaving your editor.
 
-Supports **MCP Apps** — tools that ship an interactive UI rendered directly inside the explorer.
+Supports **MCP Apps**: tools that ship an interactive UI rendered directly inside the explorer.
 
 <br />
 
@@ -37,23 +37,23 @@ Supports **MCP Apps** — tools that ship an interactive UI rendered directly in
 ## Features
 
 ### Server Management
-- **Auto-discovery** — automatically finds servers defined in `.vscode/mcp.json` or the `mcp.servers` workspace setting
-- **Manual registration** — add any server on the fly via the Add Server dialog
-- **All three transports** — `stdio`, `SSE`, and `Streamable HTTP`
-- **Capability indicators** — each connected server shows T / R / P badges: green = items available, dimmed = declared but empty, hidden = not supported
+- **Auto-discovery**: automatically finds servers defined in `.vscode/mcp.json` or the `mcp.servers` workspace setting
+- **Manual registration**: add any server on the fly via the Add Server dialog
+- **All three transports**: `stdio`, `SSE`, and `Streamable HTTP`
+- **Capability indicators**: each connected server shows T / R / P badges: green = items available, dimmed = declared but empty, hidden = not supported
 
 ### Tools
 - Browse all tools exposed by a server with their descriptions and parameter schemas
-- **Form view** — auto-generated input form with type-aware fields (text, number, boolean toggle, enum select), including nested object fields
-- **JSON view** — write raw JSON arguments with live validation hints (missing required fields, unknown properties)
-- Run tools and see syntax-highlighted results — press **Ctrl+Enter** to run without leaving the keyboard
-- **Filter** — a search bar appears above the tool list when a server exposes 10 or more tools
-- **Previous calls** — the last 6 calls per tool are shown inline with one-click re-run
+- **Form view**: auto-generated input form with type-aware fields (text, number, boolean toggle, enum select), including nested object fields
+- **JSON view**: write raw JSON arguments with live validation hints (missing required fields, unknown properties)
+- Run tools and see syntax-highlighted results; press **Ctrl+Enter** to run without leaving the keyboard
+- **Filter**: a search bar appears above the tool list when a server exposes 10 or more tools
+- **Previous calls**: the last 6 calls per tool are shown inline with one-click re-run
 - The first available tool is automatically selected when a server connects
 
 ### MCP Apps
 
-Tools can declare a `ui://` resource URI in their `_meta.ui.resourceUri` field (MCP spec 2026-01-26). When such a tool is called, the explorer loads its HTML UI in a sandboxed iframe directly below the result — no browser, no external window.
+Tools can declare a `ui://` resource URI in their `_meta.ui.resourceUri` field (MCP spec 2026-01-26). When such a tool is called, the explorer loads its HTML UI in a sandboxed iframe directly below the result, with no browser, no external window.
 
 The iframe communicates with the MCP server through the explorer's built-in JSON-RPC 2.0 bridge: it can call `tools/call` and `resources/read` back against the server in real time, enabling fully interactive experiences like live regex visualizers, fractal renderers, or code diff viewers.
 
@@ -62,12 +62,12 @@ Tools with an MCP App UI are marked with an **MCP App** badge in the tool list.
 ### Resources
 - List all resources and read their contents
 - Results rendered with syntax highlighting
-- **Filter** — a search bar appears when a server exposes 10 or more resources
+- **Filter**: a search bar appears when a server exposes 10 or more resources
 - Resource list updates can be refreshed automatically when the server emits `notifications/resources/list_changed`
 
 ### Prompts
 - Browse and render prompts with argument input support
-- **Filter** — a search bar appears when a server exposes 10 or more prompts
+- **Filter**: a search bar appears when a server exposes 10 or more prompts
 - Prompt list updates can be refreshed automatically when the server emits `notifications/prompts/list_changed`
 
 ### Notifications & Events
@@ -80,7 +80,7 @@ Tools with an MCP App UI are marked with an **MCP App** badge in the tool list.
 - Organise tests into named groups
 - Run individual tests or all tests in a group at once and see pass / fail results inline
 - Tests are saved to `mcp-tests.json` in the workspace root and automatically reloaded when the file changes
-- Supports both **Form view** and **JSON view** for test arguments — press **Ctrl+Enter** to run
+- Supports both **Form view** and **JSON view** for test arguments; press **Ctrl+Enter** to run
 
 ### Request History
 - A dedicated **History** tab records every tool call, resource read, and prompt render
