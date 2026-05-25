@@ -2,7 +2,7 @@
 
 A VS Code extension for inspecting and testing [Model Context Protocol (MCP)](https://modelcontextprotocol.io) servers, directly inside your editor.
 
-![MCP Tool Explorer BTS](https://github.com/jurgen178/mcp-tool-explorer/blob/1.13/doc/mcp1.png?raw=true)
+![MCP Tool Explorer BTS](https://github.com/jurgen178/mcp-tool-explorer/blob/main/doc/mcp1.png?raw=true)
 
 <br />
 
