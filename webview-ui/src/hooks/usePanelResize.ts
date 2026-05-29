@@ -7,6 +7,12 @@ interface Options {
   max?: number;
 }
 
+function getInitialWidth(storageKey: string, defaultWidth: number, min: number, max: number) {
+  const stored = localStorage.getItem(storageKey);
+  const parsed = stored ? parseInt(stored, 10) : NaN;
+  return Math.max(min, Math.min(max, !isNaN(parsed) ? parsed : defaultWidth));
+}
+
 /**
  * Panel-list resize via native pointerdown + pointer capture + document listeners.
  * setPointerCapture ensures pointerup fires even if the mouse leaves the VS Code window.
@@ -41,13 +47,23 @@ export function usePanelResize({
       list.style.setProperty('--panel-list-width', `${width}px`);
     };
 
+    const persistListWidth = (width: number) => {
+      localStorage.setItem(storageKey, String(width));
+    };
+
+    const updateWidth = (width: number) => {
+      applyListWidth(width);
+      persistListWidth(width);
+    };
+
+    const restoreStoredWidth = () => {
+      applyListWidth(getInitialWidth(storageKey, defaultWidth, min, max));
+    };
+
     // Restore persisted width — clamp only against absolute min/max, not parent
     // width, because the panel may be hidden (display:none) on mount and
     // parentElement.clientWidth would be 0, collapsing the list.
-    const stored = localStorage.getItem(storageKey);
-    const parsed = stored ? parseInt(stored, 10) : NaN;
-    const initial = !isNaN(parsed) ? Math.max(min, Math.min(max, parsed)) : defaultWidth;
-    applyListWidth(initial);
+    restoreStoredWidth();
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
@@ -60,17 +76,17 @@ export function usePanelResize({
       document.querySelector('.app')?.classList.add('panel-resizing');
 
       let dragActive = true;
+      let latestWidth = clampListWidth(startWidth);
 
       const clamp = (x: number) => clampListWidth(startWidth + x - startX);
 
       const persistCurrentWidth = () => {
-        const finalWidth = clampListWidth(list.getBoundingClientRect().width);
-        applyListWidth(finalWidth);
-        localStorage.setItem(storageKey, String(finalWidth));
+        updateWidth(latestWidth);
       };
 
       const onPointerMove = (ev: PointerEvent) => {
-        applyListWidth(clamp(ev.clientX));
+        latestWidth = clamp(ev.clientX);
+        updateWidth(latestWidth);
       };
 
       const cleanupDrag = (pointerId?: number) => {
@@ -87,7 +103,8 @@ export function usePanelResize({
       };
 
       const onPointerUp = (ev: PointerEvent) => {
-        applyListWidth(clamp(ev.clientX));
+        latestWidth = clamp(ev.clientX);
+        updateWidth(latestWidth);
         persistCurrentWidth();
         cleanupDrag(ev.pointerId);
       };
@@ -116,14 +133,22 @@ export function usePanelResize({
     // ResizeObserver would clamp the stored width down to the minimum.
     const container = list.parentElement;
     const observer = new ResizeObserver(() => {
-      if (!container || container.clientWidth === 0) return;
-      const currentList = list.getBoundingClientRect().width;
-      applyListWidth(clampListWidth(currentList));
+      if (!container || container.clientWidth === 0 || document.visibilityState !== 'visible') return;
+      const storedWidth = getInitialWidth(storageKey, defaultWidth, min, max);
+      applyListWidth(clampListWidth(storedWidth));
     });
     if (container) observer.observe(container);
 
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        restoreStoredWidth();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     return () => {
       handle.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       observer.disconnect();
     };
   }, [storageKey, defaultWidth, min, max]);

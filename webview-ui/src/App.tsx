@@ -134,6 +134,17 @@ const initialState: AppState = {
   runningTestIds: [],
 };
 
+const SIDEBAR_KEY = 'sidebar-width';
+const SIDEBAR_DEFAULT = 220;
+const SIDEBAR_MIN = 150;
+const SIDEBAR_MAX = 500;
+
+function getInitialSidebarWidth() {
+  const stored = localStorage.getItem(SIDEBAR_KEY);
+  const parsed = stored ? parseInt(stored, 10) : NaN;
+  return Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, !isNaN(parsed) ? parsed : SIDEBAR_DEFAULT));
+}
+
 function setCapabilityState(
   capabilityLoadState: CapabilityLoadStateByKind,
   capability: CapabilityKind,
@@ -597,10 +608,6 @@ export default function App() {
   const appRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const SIDEBAR_KEY = 'sidebar-width';
-    const SIDEBAR_DEFAULT = 220;
-    const SIDEBAR_MIN = 150;
-    const SIDEBAR_MAX = 500;
     const MIN_MAIN = 300;
     const handle = sidebarHandleRef.current;
     const wrapper = sidebarWrapperRef.current;
@@ -621,11 +628,18 @@ export default function App() {
       wrapper.style.setProperty('--sidebar-width', `${width}px`);
     };
 
-    // Restore persisted width
-    const stored = localStorage.getItem(SIDEBAR_KEY);
-    const parsed = stored ? parseInt(stored, 10) : NaN;
-    const initial = clampSidebarWidth(!isNaN(parsed) ? parsed : SIDEBAR_DEFAULT);
-    applySidebarWidth(initial);
+    const persistSidebarWidth = (width: number) => {
+      localStorage.setItem(SIDEBAR_KEY, String(width));
+    };
+
+    const updateSidebarWidth = (width: number) => {
+      applySidebarWidth(width);
+      persistSidebarWidth(width);
+    };
+
+    // Restore persisted width without using container geometry, because VS Code
+    // may temporarily hide the webview and report unusable layout sizes.
+    applySidebarWidth(getInitialSidebarWidth());
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
@@ -636,17 +650,21 @@ export default function App() {
       app?.classList.add('sidebar-resizing');
 
       let dragActive = true;
+      let latestWidth = clampSidebarWidth(startWidth);
 
       const clamp = (x: number) => clampSidebarWidth(startWidth + x - startX);
 
+      const updateWidth = (width: number) => {
+        latestWidth = width;
+        updateSidebarWidth(width);
+      };
+
       const persistCurrentWidth = () => {
-        const finalWidth = clampSidebarWidth(wrapper.getBoundingClientRect().width);
-        applySidebarWidth(finalWidth);
-        localStorage.setItem(SIDEBAR_KEY, String(finalWidth));
+        updateWidth(latestWidth);
       };
 
       const onPointerMove = (ev: PointerEvent) => {
-        applySidebarWidth(clamp(ev.clientX));
+        updateWidth(clamp(ev.clientX));
       };
 
       const cleanupDrag = (pointerId?: number) => {
@@ -663,7 +681,7 @@ export default function App() {
       };
 
       const onPointerUp = (ev: PointerEvent) => {
-        applySidebarWidth(clamp(ev.clientX));
+        updateWidth(clamp(ev.clientX));
         persistCurrentWidth();
         cleanupDrag(ev.pointerId);
       };
@@ -688,14 +706,21 @@ export default function App() {
 
     // Clamp sidebar width when the window shrinks (e.g. un-maximized)
     const observer = new ResizeObserver(() => {
-      if (!app) return;
-      const currentSidebar = wrapper.getBoundingClientRect().width;
-      applySidebarWidth(clampSidebarWidth(currentSidebar));
+      if (!app || app.clientWidth === 0 || document.visibilityState !== 'visible') return;
+      applySidebarWidth(clampSidebarWidth(getInitialSidebarWidth()));
     });
     if (app) observer.observe(app);
 
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        applySidebarWidth(getInitialSidebarWidth());
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+
     return () => {
       handle.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       observer.disconnect();
     };
   }, []);
