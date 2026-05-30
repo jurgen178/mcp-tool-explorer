@@ -50,6 +50,7 @@ Supports **MCP Apps**: tools that ship an interactive UI rendered directly insid
 - Automatically handles OAuth-protected HTTP/SSE servers that advertise resource metadata via `WWW-Authenticate`
 - Uses VS Code's built-in authentication providers to acquire bearer tokens when a known authorization server is advertised
 - Per-server authentication behaviour can be set to **Automatic**, **Choose account**, or **Disabled** without changing MCP config files
+- Manual request headers remain available for servers that use custom token-based authentication
 
 ### Tools
 - Browse all tools exposed by a server with their descriptions and parameter schemas
@@ -99,6 +100,7 @@ Tools with an MCP App UI are marked with an **MCP App** badge in the tool list.
 ### Connection Diagnostics
 - A dedicated **Log** tab records MCP transport activity for troubleshooting
 - For HTTP-based servers, request and response details are captured to help diagnose initialization, fallback, auth, and notification-delivery issues
+- Invalid MCP responses and schema issues are surfaced with raw response diagnostics instead of generic connection errors
 - Actionable hints are shown for common errors (host not found, connection refused, TLS issues, HTTP 4xx/5xx, invalid URL scheme)
 - HTML error pages (e.g. IIS error responses) are automatically stripped to show only the relevant title
 - In-progress connections can be **cancelled** at any time with the Cancel button
