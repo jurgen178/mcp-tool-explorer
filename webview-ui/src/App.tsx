@@ -21,7 +21,7 @@ import { useKonamiCode, MatrixRainOverlay } from './components/MatrixProtocol';
 // State & Reducer
 
 export interface LogSection {
-  kind: 'request' | 'response' | 'request-headers' | 'response-headers' | 'error' | 'text';
+  kind: 'request' | 'response' | 'raw-response' | 'request-headers' | 'response-headers' | 'error' | 'text';
   content: string;
 }
 

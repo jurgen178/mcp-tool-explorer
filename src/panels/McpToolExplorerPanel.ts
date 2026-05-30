@@ -443,16 +443,17 @@ export class McpToolExplorerPanel {
 
   private async _setAuthOverride(serverId: string, serverName: string, accountSelection: AuthAccountSelection): Promise<void> {
     const overrides = { ...this._getAuthOverrides() };
-    const key = overrides[serverId] ? serverId : serverName;
-    if (accountSelection === 'auto') {
-      delete overrides[serverId];
-      delete overrides[serverName];
-    } else {
-      overrides[key] = accountSelection;
+    delete overrides[serverId];
+    delete overrides[serverName];
+    if (accountSelection !== 'auto') {
+      overrides[serverName] = accountSelection;
     }
+    const target = vscode.workspace.workspaceFolders?.length
+      ? vscode.ConfigurationTarget.Workspace
+      : vscode.ConfigurationTarget.Global;
     await vscode.workspace
       .getConfiguration('mcpToolExplorer')
-      .update('auth.accountSelection', overrides, vscode.ConfigurationTarget.Workspace);
+      .update('auth.accountSelection', overrides, target);
   }
 
   // HTML generation

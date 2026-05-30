@@ -12,13 +12,13 @@ import {
   ToolListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { AuthAccountSelection, AuthAccountSelectionOverrides, McpEventEntry, McpServerConfig, McpServerDetails, McpTool, McpResource, McpPrompt } from '../types';
-import { createOAuthHandler } from './McpOAuth';
+import { createOAuthHandler, type OAuthState } from './McpOAuth';
 import { createLoggingFetch, type FetchLogEntry } from './LoggingFetch';
 import { clampLogText } from './logText';
 import { SENSITIVE_HEADER_NAMES } from './sensitiveHeaders';
 
 export interface LogSection {
-  kind: 'request' | 'response' | 'request-headers' | 'response-headers' | 'error' | 'text';
+  kind: 'request' | 'response' | 'raw-response' | 'request-headers' | 'response-headers' | 'error' | 'text';
   content: string;
 }
 
@@ -123,6 +123,7 @@ export class McpClientManager {
   private readonly _version: string;
   /** Log listeners are tracked per server so concurrent connections stay isolated. */
   private readonly _logListeners = new Map<string, (entry: ConnectionLogEntry) => void>();
+  private readonly _recentMcpResponses = new Map<string, FetchLogEntry>();
   private _onEvent: ((serverId: string, event: McpEventEntry) => void) | undefined;
   private _eventCounter = 0;
   private readonly _recentEventGroups = new Map<string, RecentEventGroup>();
@@ -327,6 +328,136 @@ export class McpClientManager {
     );
   }
 
+  private _recentResponseKey(serverId: string, rpcMethod: string): string {
+    return `${serverId}\u0000${rpcMethod}`;
+  }
+
+  private _getRpcMethodFromRequest(request: unknown): string | undefined {
+    const record = this._asRecord(request);
+    const method = record?.method;
+    return typeof method === 'string' ? method : undefined;
+  }
+
+  private async _getResponseBodyForDiagnostics(response: FetchLogEntry): Promise<string> {
+    if (response.responseBody && response.responseBody !== '[streaming SSE response]') {
+      return response.responseBody;
+    }
+
+    if (!response.responseBodyPromise) {
+      return '';
+    }
+
+    return await Promise.race([
+      response.responseBodyPromise,
+      new Promise<string>(resolve => setTimeout(() => resolve(''), 1000)),
+    ]);
+  }
+
+  private _formatParsedJson(value: string): string | undefined {
+    try {
+      return JSON.stringify(JSON.parse(value), null, 2);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private _extractSseDataValues(rawResponseBody: string): string[] {
+    const values: string[] = [];
+    let currentDataLines: string[] = [];
+
+    const flush = () => {
+      if (currentDataLines.length > 0) {
+        values.push(currentDataLines.join('\n'));
+        currentDataLines = [];
+      }
+    };
+
+    for (const line of rawResponseBody.split(/\r?\n/)) {
+      if (line === '') {
+        flush();
+        continue;
+      }
+
+      if (line.startsWith('data:')) {
+        currentDataLines.push(line.slice(5).replace(/^ /, ''));
+      }
+    }
+
+    flush();
+    return values;
+  }
+
+  private _getParsedResponseDiagnostics(rawResponseBody: string): { parsedJson?: string; jsonStatus: string } {
+    const sseDataValues = this._extractSseDataValues(rawResponseBody);
+    if (sseDataValues.length > 0) {
+      const parsedSseDataJson = this._formatParsedJson(sseDataValues[sseDataValues.length - 1]);
+      if (parsedSseDataJson) {
+        return {
+          parsedJson: parsedSseDataJson,
+          jsonStatus: 'Raw response is a Server-Sent Events (SSE) stream, not JSON. The SSE data value is valid JSON; the failure happened during MCP/schema validation.',
+        };
+      }
+
+      return { jsonStatus: 'Raw response is a Server-Sent Events (SSE) stream, not JSON. The SSE data value is not valid JSON.' };
+    }
+
+    const parsedRawJson = this._formatParsedJson(rawResponseBody);
+    if (parsedRawJson) {
+      return {
+        parsedJson: parsedRawJson,
+        jsonStatus: 'Raw response is valid JSON; the failure happened during MCP/schema validation.',
+      };
+    }
+
+    return { jsonStatus: 'Raw response is not valid JSON.' };
+  }
+
+  private async _logInvalidMcpResponse(
+    serverId: string,
+    label: string,
+    request: unknown,
+    requestContent: string,
+    errorDetail: string,
+    startedAt: number,
+  ): Promise<void> {
+    const rpcMethod = this._getRpcMethodFromRequest(request);
+    if (!rpcMethod) {
+      return;
+    }
+
+    const response = this._recentMcpResponses.get(this._recentResponseKey(serverId, rpcMethod));
+    if (!response || response.timestamp < startedAt || response.status === null || response.status >= 400 || !response.responseBody) {
+      return;
+    }
+
+    const rawResponseBody = await this._getResponseBodyForDiagnostics(response);
+    if (!rawResponseBody) {
+      return;
+    }
+
+    const responseDiagnostics = this._getParsedResponseDiagnostics(rawResponseBody);
+    const sections: LogSection[] = [
+      {
+        kind: 'text',
+        content: [
+          `${label} failed after the server returned HTTP ${response.status} ${response.statusText}.`,
+          responseDiagnostics.jsonStatus,
+          'The MCP SDK rejected the response. The raw server response is included below for copy/paste debugging.',
+        ].join('\n'),
+      },
+      { kind: 'request', content: requestContent },
+      { kind: 'raw-response', content: rawResponseBody },
+    ];
+
+    if (responseDiagnostics.parsedJson) {
+      sections.push({ kind: 'response', content: responseDiagnostics.parsedJson });
+    }
+
+    sections.push({ kind: 'error', content: errorDetail });
+
+    this._log(serverId, 'error', `Raw MCP response rejected by SDK: ${rpcMethod}`, sections);
+  }
+
   private _getAuthAccountSelection(config: McpServerConfig): AuthAccountSelection {
     const overrides = vscode.workspace
       .getConfiguration('mcpToolExplorer')
@@ -360,6 +491,8 @@ export class McpClientManager {
         ? clampLogText(error.message)
         : clampLogText(String(error));
 
+      await this._logInvalidMcpResponse(serverId, label, request, requestContent, errorDetail, startedAt);
+
       this._log(serverId, 'error', `${label} failed after ${Date.now() - startedAt}ms`, [
         { kind: 'request', content: requestContent },
         { kind: 'error', content: errorDetail },
@@ -369,6 +502,10 @@ export class McpClientManager {
   }
 
   private _logFetchEntry(serverId: string, entry: FetchLogEntry): void {
+    if (entry.rpcMethod && entry.responseBody) {
+      this._recentMcpResponses.set(this._recentResponseKey(serverId, entry.rpcMethod), entry);
+    }
+
     const statusStr = entry.status !== null ? `${entry.status} ${entry.statusText}` : 'NETWORK ERROR';
     const level: ConnectionLogEntry['level'] = entry.error ? 'error' : (entry.status && entry.status >= 400) ? 'warn' : 'info';
 
@@ -441,7 +578,8 @@ export class McpClientManager {
 
     this._registerNotificationHandlers(client, config.id);
 
-    const transport = this._createTransport(config);
+    const oauthState: OAuthState = {};
+    const transport = this._createTransport(config, oauthState);
 
     // Set up AbortController so the user can cancel a hanging connect
     const controller = new AbortController();
@@ -497,7 +635,7 @@ export class McpClientManager {
           },
         );
         this._registerNotificationHandlers(sseClient, config.id);
-        const sseTransport = this._createTransport({ ...config, type: 'sse' });
+        const sseTransport = this._createTransport({ ...config, type: 'sse' }, oauthState);
         try {
           await Promise.race([
             this._measure(config.id, 'Connect SSE transport fallback', () => sseClient.connect(sseTransport)),
@@ -746,7 +884,7 @@ export class McpClientManager {
     return capabilities[capability] !== undefined;
   }
 
-  private _createTransport(config: McpServerConfig) {
+  private _createTransport(config: McpServerConfig, oauthState?: OAuthState) {
     if (config.type === 'stdio') {
       if (!config.command) throw new Error(`Stdio server "${config.name}" is missing a command.`);
 
@@ -772,6 +910,7 @@ export class McpClientManager {
     const authenticatedFetch = createOAuthHandler(loggingFetch, {
       accountSelection: this._getAuthAccountSelection(config),
       serverName: config.name,
+      state: oauthState,
     });
 
     if (config.type === 'sse') {

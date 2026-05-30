@@ -23,6 +23,7 @@ const LEVEL_COLORS: Record<string, string> = {
 const SECTION_LABELS: Record<string, string> = {
   'request':          'Request',
   'response':         'Response',
+  'raw-response':     'Raw Response',
   'request-headers':  'Request Headers',
   'response-headers': 'Response Headers',
   'error':            'Error',
@@ -32,6 +33,7 @@ const SECTION_LABELS: Record<string, string> = {
 const SECTION_LABEL_COLORS: Record<string, string> = {
   'request':          'var(--vscode-charts-blue, #3794ff)',
   'response':         'var(--vscode-charts-green, #89d185)',
+  'raw-response':     'var(--vscode-charts-green, #89d185)',
   'request-headers':  'var(--vscode-symbolIcon-variableForeground, #75beff)',
   'response-headers': 'var(--vscode-symbolIcon-variableForeground, #75beff)',
   'error':            'var(--vscode-charts-red, #f44747)',
@@ -191,12 +193,16 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
               ? { before: rpcMatch[1], badge: rpcMatch[2], after: rpcMatch[3] }
               : null;
             const isCapabilityList = /^List (?:tools|resources|prompts) finished/i.test(entry.message);
+            const isInvalidMcpResponse = entry.message.startsWith('Raw MCP response rejected by SDK');
             return (
               <div
                 key={idx}
                 style={{
                   borderBottom: '1px solid var(--vscode-widget-border, #2d2d2d)',
-                  ...(isCapabilityList ? {
+                  ...(isInvalidMcpResponse ? {
+                    borderLeft: '3px solid var(--vscode-charts-red, #f44747)',
+                    background: 'rgba(244,71,71,0.08)',
+                  } : isCapabilityList ? {
                     borderLeft: '3px solid var(--vscode-charts-green, #4ec9b0)',
                     background: 'rgba(78,201,176,0.12)',
                   } : { borderLeft: '3px solid transparent' }),
@@ -226,7 +232,7 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
                   }}>
                     {entry.level}
                   </span>
-                  <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 11, ...(isCapabilityList ? { color: 'var(--vscode-charts-green, #4ec9b0)', fontWeight: 600 } : {}) }}>
+                  <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 11, ...(isInvalidMcpResponse ? { color: 'var(--vscode-charts-red, #f44747)', fontWeight: 600 } : isCapabilityList ? { color: 'var(--vscode-charts-green, #4ec9b0)', fontWeight: 600 } : {}) }}>
                     {messageParts ? (
                       <>
                         {messageParts.before}{' '}

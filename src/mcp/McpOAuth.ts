@@ -12,6 +12,16 @@ import type { AuthAccountSelection } from '../types';
 interface OAuthOptions {
   accountSelection?: AuthAccountSelection;
   serverName?: string;
+  state?: OAuthState;
+}
+
+export interface OAuthState {
+  promptCancelled?: boolean;
+}
+
+interface TokenAcquisitionResult {
+  token?: string;
+  prompted: boolean;
 }
 
 export function createOAuthHandler(
@@ -36,14 +46,18 @@ export function createOAuthHandler(
 
     const response = await baseFetch(input, init);
 
-    if (response.status === 401) {
+    if (response.status === 401 && !options.state?.promptCancelled) {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
-      const token = await discoverAndAcquireToken(response, url, accountSelection, options.serverName);
+      const result = await discoverAndAcquireToken(response, url, accountSelection, options.serverName);
+      const token = result.token;
       if (token) {
         cachedToken = token;
         const retryHeaders = new Headers(init?.headers);
         retryHeaders.set('Authorization', `Bearer ${token}`);
         return baseFetch(input, { ...init, headers: retryHeaders });
+      }
+      if (result.prompted && options.state) {
+        options.state.promptCancelled = true;
       }
     }
 
@@ -77,24 +91,24 @@ async function discoverAndAcquireToken(
   requestUrl: string,
   accountSelection: AuthAccountSelection,
   serverName: string | undefined,
-): Promise<string | undefined> {
+): Promise<TokenAcquisitionResult> {
+  let prompted = false;
   const wwwAuth = response.headers.get('www-authenticate') ?? '';
   const rmMatch = wwwAuth.match(/resource_metadata="([^"]+)"/i);
-  if (!rmMatch) return undefined;
+  if (!rmMatch) return { prompted };
 
-  // Extract just the path and resolve against the request's own origin,
-  // so it works both in dev (localhost) and production (real hostname).
-  let rmPath: string;
+  // Absolute resource_metadata URLs may live on a different host than the MCP
+  // endpoint. Relative values are resolved against the original request URL.
+  let resourceMetadataUrl: string;
   try {
-    rmPath = new URL(rmMatch[1]!).pathname;
+    resourceMetadataUrl = new URL(rmMatch[1]!, requestUrl).toString();
   } catch {
-    return undefined;
+    return { prompted };
   }
-  const localRmUrl = new URL(rmPath, new URL(requestUrl).origin).toString();
 
   try {
-    const rmResp = await globalThis.fetch(localRmUrl, { signal: AbortSignal.timeout(5000) });
-    if (!rmResp.ok) return undefined;
+    const rmResp = await globalThis.fetch(resourceMetadataUrl, { signal: AbortSignal.timeout(5000) });
+    if (!rmResp.ok) return { prompted };
 
     const meta = await rmResp.json() as {
       authorization_servers?: string[];
@@ -108,18 +122,19 @@ async function discoverAndAcquireToken(
       (s: string) => s.includes('/') && !['openid', 'profile', 'offline_access', 'email'].includes(s),
     );
     const tokenScopes = appScopes.length > 0 ? appScopes : scopes;
-    if (tokenScopes.length === 0) return undefined;
+    if (tokenScopes.length === 0) return { prompted };
 
     // Derive the VS Code auth provider from the authorization_servers metadata.
-    // Falls back to 'microsoft' when the field is absent (Entra ID / Azure AD).
+    // If no known provider is advertised, skip auth and return the original 401.
     const authServer = meta.authorization_servers?.[0] ?? '';
     const providerId = resolveProviderId(authServer);
-    if (!providerId) return undefined; // unknown provider — cannot acquire token
+    if (!providerId) return { prompted }; // unknown provider — cannot acquire token
 
     let session: vscode.AuthenticationSession | undefined;
     if (accountSelection === 'prompt') {
+      prompted = true;
       session = await vscode.authentication.getSession(providerId, tokenScopes, {
-        forceNewSession: {
+        createIfNone: {
           detail: serverName
             ? `Choose the account to use for MCP server "${serverName}".`
             : 'Choose the account to use for this MCP server.',
@@ -133,8 +148,8 @@ async function discoverAndAcquireToken(
     if (!session && accountSelection === 'auto') {
       session = await vscode.authentication.getSession(providerId, tokenScopes, { createIfNone: true });
     }
-    return session?.accessToken;
+    return { token: session?.accessToken, prompted };
   } catch {
-    return undefined;
+    return { prompted };
   }
 }

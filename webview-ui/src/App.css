@@ -327,7 +327,11 @@ body {
 }
 
 .tool-search-bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   padding: 6px 8px 4px;
+  background: var(--vscode-editor-background);
   border-bottom: 1px solid var(--vscode-widget-border, #454545);
 }
 .tool-search-input {

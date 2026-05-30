@@ -16,6 +16,7 @@ export interface FetchLogEntry {
   statusText: string;
   responseHeaders: Record<string, string>;
   responseBody: string;
+  responseBodyPromise?: Promise<string>;
   bodyExcerpt: string;
   error: string | null;
   durationMs: number;
@@ -60,11 +61,15 @@ export function createLoggingFetch(
       const contentType = response.headers.get('content-type') ?? '';
 
       if (contentType.includes('text/event-stream')) {
+        const responseBodyPromise = rpcMethod
+          ? response.clone().text().then(text => clampLogText(text)).catch(() => '')
+          : undefined;
         onLog({
           timestamp: start, method, url, rpcMethod, requestHeaders: reqHeaders,
           requestBody, status: response.status, statusText: response.statusText,
           responseHeaders: resHeaders,
           responseBody: '[streaming SSE response]',
+          responseBodyPromise,
           bodyExcerpt: '',
           error: null,
           durationMs: Date.now() - start,
