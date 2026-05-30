@@ -394,11 +394,11 @@ export class McpClientManager {
       if (parsedSseDataJson) {
         return {
           parsedJson: parsedSseDataJson,
-          jsonStatus: 'Raw response is a Server-Sent Events (SSE) stream, not JSON. The SSE data value is valid JSON; the failure happened during MCP/schema validation.',
+          jsonStatus: 'Raw response is a Server-Sent Events (SSE) stream. Its data field contains valid JSON; the failure happened during MCP/schema validation.',
         };
       }
 
-      return { jsonStatus: 'Raw response is a Server-Sent Events (SSE) stream, not JSON. The SSE data value is not valid JSON.' };
+      return { jsonStatus: 'Raw response is a Server-Sent Events (SSE) stream, but its data field is not valid JSON.' };
     }
 
     const parsedRawJson = this._formatParsedJson(rawResponseBody);
