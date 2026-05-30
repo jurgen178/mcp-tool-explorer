@@ -18,6 +18,7 @@ interface Props {
   onStartRequest: (id: string, info: RequestInfo) => void;
   onSaveAsTest: (toolName: string, args: unknown) => void;
   onOpenLogForRequest: (requestId: string) => void;
+  onOpenServerLog: () => void;
 }
 
 let reqCounter = 0;
@@ -81,7 +82,7 @@ function flattenArgs(obj: Record<string, unknown>, props: Record<string, SchemaP
 
 export default function ToolsPanel({
   serverId, tools, loadState, history, requests, isConnected,
-  pendingRerun, onPendingRerunConsumed, onStartRequest, onSaveAsTest, onOpenLogForRequest,
+  pendingRerun, onPendingRerunConsumed, onStartRequest, onSaveAsTest, onOpenLogForRequest, onOpenServerLog,
 }: Props) {
   const [selectedTool, setSelectedTool] = useState<McpTool | null>(null);
   const [search, setSearch] = useState('');
@@ -219,6 +220,9 @@ export default function ToolsPanel({
                     ? 'No tools available.'
                     : 'Connect to load tools.'}
             </p>
+            {loadState === 'error' && (
+              <button className="btn btn-secondary empty-state-action" onClick={onOpenServerLog}>View log</button>
+            )}
           </div>
         ) : filteredTools.length === 0 ? (
           <div className="empty-state empty-state-compact"><p>No tools match "{search}".</p></div>
@@ -390,11 +394,11 @@ export default function ToolsPanel({
               </div>
             )}
           </>
-        ) : (
+        ) : tools.length > 0 ? (
           <div className="empty-state">
             <p>Select a tool from the list to inspect and run it.</p>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

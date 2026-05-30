@@ -36,7 +36,8 @@ export interface ConnectionLogEntry {
   detail?: string | LogSection[];
 }
 
-type CapabilityLoadStateByKind = Record<CapabilityKind, Record<string, CapabilityLoadState>>;
+type CapabilityLoadStates = Record<CapabilityKind, Record<string, CapabilityLoadState>>;
+type CapabilityRequestIds = Record<CapabilityKind, Record<string, string | undefined>>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -62,7 +63,8 @@ interface AppState {
   serverErrors: Record<string, string>;
   serverDetails: Record<string, McpServerDetails | undefined>;
   serverEvents: Record<string, McpEventEntry[]>;
-  capabilityLoadState: CapabilityLoadStateByKind;
+  capabilityLoadState: CapabilityLoadStates;
+  capabilityLoadErrorRequestIds: CapabilityRequestIds;
   selectedServerId: string | null;
   activeTab: 'tools' | 'resources' | 'prompts' | 'history' | 'events' | 'log' | 'tests';
   tools: Record<string, McpTool[]>;
@@ -97,7 +99,7 @@ type Action =
   | { type: 'SERVER_EVENTS_CLEAR'; serverId: string }
   | { type: 'DISCONNECTED'; serverId: string }
   | { type: 'CONNECTION_ERROR'; serverId: string; error: string }
-  | { type: 'CAPABILITY_LOAD_FAILED'; serverId: string; capability: CapabilityKind }
+  | { type: 'CAPABILITY_LOAD_FAILED'; serverId: string; capability: CapabilityKind; requestId: string }
   | { type: 'TOOLS_LISTED'; serverId: string; tools: McpTool[] }
   | { type: 'RESOURCES_LISTED'; serverId: string; resources: McpResource[] }
   | { type: 'PROMPTS_LISTED'; serverId: string; prompts: McpPrompt[] }
@@ -126,6 +128,11 @@ const initialState: AppState = {
   serverDetails: {},
   serverEvents: {},
   capabilityLoadState: {
+    tools: {},
+    resources: {},
+    prompts: {},
+  },
+  capabilityLoadErrorRequestIds: {
     tools: {},
     resources: {},
     prompts: {},
@@ -161,11 +168,11 @@ function getInitialSidebarWidth() {
 }
 
 function setCapabilityState(
-  capabilityLoadState: CapabilityLoadStateByKind,
+  capabilityLoadState: CapabilityLoadStates,
   capability: CapabilityKind,
   serverId: string,
   loadState: CapabilityLoadState,
-): CapabilityLoadStateByKind {
+): CapabilityLoadStates {
   return {
     ...capabilityLoadState,
     [capability]: {
@@ -176,15 +183,52 @@ function setCapabilityState(
 }
 
 function setAllCapabilityStates(
-  capabilityLoadState: CapabilityLoadStateByKind,
+  capabilityLoadState: CapabilityLoadStates,
   serverId: string,
   loadState: CapabilityLoadState,
-): CapabilityLoadStateByKind {
+): CapabilityLoadStates {
   return {
     tools: { ...capabilityLoadState.tools, [serverId]: loadState },
     resources: { ...capabilityLoadState.resources, [serverId]: loadState },
     prompts: { ...capabilityLoadState.prompts, [serverId]: loadState },
   };
+}
+
+function setCapabilityErrorRequestId(
+  capabilityLoadErrorRequestIds: CapabilityRequestIds,
+  capability: CapabilityKind,
+  serverId: string,
+  requestId: string,
+): CapabilityRequestIds {
+  return {
+    ...capabilityLoadErrorRequestIds,
+    [capability]: {
+      ...capabilityLoadErrorRequestIds[capability],
+      [serverId]: requestId,
+    },
+  };
+}
+
+function clearCapabilityErrorRequestId(
+  capabilityLoadErrorRequestIds: CapabilityRequestIds,
+  capability: CapabilityKind,
+  serverId: string,
+): CapabilityRequestIds {
+  const { [serverId]: _, ...capabilityRequestIds } = capabilityLoadErrorRequestIds[capability];
+  return {
+    ...capabilityLoadErrorRequestIds,
+    [capability]: capabilityRequestIds,
+  };
+}
+
+function clearAllCapabilityErrorRequestIds(
+  capabilityLoadErrorRequestIds: CapabilityRequestIds,
+  serverId: string,
+): CapabilityRequestIds {
+  return (['tools', 'resources', 'prompts'] as const).reduce(
+    (requestIds, capability) => clearCapabilityErrorRequestId(requestIds, capability, serverId),
+    capabilityLoadErrorRequestIds,
+  );
 }
 
 function reducer(state: AppState, action: Action): AppState {
@@ -202,6 +246,11 @@ function reducer(state: AppState, action: Action): AppState {
           tools: Object.fromEntries(action.servers.map(s => [s.id, state.capabilityLoadState.tools[s.id] ?? 'idle'])),
           resources: Object.fromEntries(action.servers.map(s => [s.id, state.capabilityLoadState.resources[s.id] ?? 'idle'])),
           prompts: Object.fromEntries(action.servers.map(s => [s.id, state.capabilityLoadState.prompts[s.id] ?? 'idle'])),
+        },
+        capabilityLoadErrorRequestIds: {
+          tools: Object.fromEntries(action.servers.map(s => [s.id, state.capabilityLoadErrorRequestIds.tools[s.id]])),
+          resources: Object.fromEntries(action.servers.map(s => [s.id, state.capabilityLoadErrorRequestIds.resources[s.id]])),
+          prompts: Object.fromEntries(action.servers.map(s => [s.id, state.capabilityLoadErrorRequestIds.prompts[s.id]])),
         },
       };
 
@@ -230,6 +279,9 @@ function reducer(state: AppState, action: Action): AppState {
       const { [action.serverId]: _toolState, ...toolLoadState } = state.capabilityLoadState.tools;
       const { [action.serverId]: _resourceState, ...resourceLoadState } = state.capabilityLoadState.resources;
       const { [action.serverId]: _promptState, ...promptLoadState } = state.capabilityLoadState.prompts;
+      const { [action.serverId]: _toolRequestId, ...toolErrorRequestIds } = state.capabilityLoadErrorRequestIds.tools;
+      const { [action.serverId]: _resourceRequestId, ...resourceErrorRequestIds } = state.capabilityLoadErrorRequestIds.resources;
+      const { [action.serverId]: _promptRequestId, ...promptErrorRequestIds } = state.capabilityLoadErrorRequestIds.prompts;
       const { [action.serverId]: _details, ...serverDetails } = state.serverDetails;
       const { [action.serverId]: _events, ...serverEvents } = state.serverEvents;
       const { [action.serverId]: _t, ...tools } = state.tools;
@@ -253,6 +305,11 @@ function reducer(state: AppState, action: Action): AppState {
           tools: toolLoadState,
           resources: resourceLoadState,
           prompts: promptLoadState,
+        },
+        capabilityLoadErrorRequestIds: {
+          tools: toolErrorRequestIds,
+          resources: resourceErrorRequestIds,
+          prompts: promptErrorRequestIds,
         },
         serverDetails,
         serverEvents,
@@ -289,6 +346,7 @@ function reducer(state: AppState, action: Action): AppState {
         serverDetails: { ...state.serverDetails, [action.serverId]: undefined },
         serverEvents: { ...state.serverEvents, [action.serverId]: [] },
         capabilityLoadState: setAllCapabilityStates(state.capabilityLoadState, action.serverId, 'loading'),
+        capabilityLoadErrorRequestIds: clearAllCapabilityErrorRequestIds(state.capabilityLoadErrorRequestIds, action.serverId),
         tools: { ...state.tools, [action.serverId]: [] },
         resources: { ...state.resources, [action.serverId]: [] },
         prompts: { ...state.prompts, [action.serverId]: [] },
@@ -329,6 +387,7 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         serverStatus: { ...state.serverStatus, [action.serverId]: 'disconnected' },
         capabilityLoadState: setAllCapabilityStates(state.capabilityLoadState, action.serverId, 'idle'),
+        capabilityLoadErrorRequestIds: clearAllCapabilityErrorRequestIds(state.capabilityLoadErrorRequestIds, action.serverId),
         tools: { ...state.tools, [action.serverId]: [] },
         resources: { ...state.resources, [action.serverId]: [] },
         prompts: { ...state.prompts, [action.serverId]: [] },
@@ -340,12 +399,19 @@ function reducer(state: AppState, action: Action): AppState {
         serverStatus: { ...state.serverStatus, [action.serverId]: 'error' },
         serverErrors: { ...state.serverErrors, [action.serverId]: action.error },
         capabilityLoadState: setAllCapabilityStates(state.capabilityLoadState, action.serverId, 'error'),
+        capabilityLoadErrorRequestIds: clearAllCapabilityErrorRequestIds(state.capabilityLoadErrorRequestIds, action.serverId),
       };
 
     case 'CAPABILITY_LOAD_FAILED':
       return {
         ...state,
         capabilityLoadState: setCapabilityState(state.capabilityLoadState, action.capability, action.serverId, 'error'),
+        capabilityLoadErrorRequestIds: setCapabilityErrorRequestId(
+          state.capabilityLoadErrorRequestIds,
+          action.capability,
+          action.serverId,
+          action.requestId,
+        ),
       };
 
     case 'TOOLS_LISTED':
@@ -353,6 +419,7 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         tools: { ...state.tools, [action.serverId]: action.tools },
         capabilityLoadState: setCapabilityState(state.capabilityLoadState, 'tools', action.serverId, 'loaded'),
+        capabilityLoadErrorRequestIds: clearCapabilityErrorRequestId(state.capabilityLoadErrorRequestIds, 'tools', action.serverId),
       };
 
     case 'RESOURCES_LISTED':
@@ -360,6 +427,7 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         resources: { ...state.resources, [action.serverId]: action.resources },
         capabilityLoadState: setCapabilityState(state.capabilityLoadState, 'resources', action.serverId, 'loaded'),
+        capabilityLoadErrorRequestIds: clearCapabilityErrorRequestId(state.capabilityLoadErrorRequestIds, 'resources', action.serverId),
       };
 
     case 'PROMPTS_LISTED':
@@ -367,6 +435,7 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         prompts: { ...state.prompts, [action.serverId]: action.prompts },
         capabilityLoadState: setCapabilityState(state.capabilityLoadState, 'prompts', action.serverId, 'loaded'),
+        capabilityLoadErrorRequestIds: clearCapabilityErrorRequestId(state.capabilityLoadErrorRequestIds, 'prompts', action.serverId),
       };
 
     case 'REQUEST_STARTED':
@@ -479,7 +548,7 @@ export default function App() {
         case 'serverEvent':     dispatch({ type: 'SERVER_EVENT',      serverId: msg.serverId, event: msg.event }); break;
         case 'disconnected':    dispatch({ type: 'DISCONNECTED',      serverId: msg.serverId }); break;
         case 'connectionError': dispatch({ type: 'CONNECTION_ERROR',  serverId: msg.serverId, error: msg.error }); dispatch({ type: 'SELECT_TAB', tab: 'log' }); break;
-        case 'capabilityLoadFailed': dispatch({ type: 'CAPABILITY_LOAD_FAILED', serverId: msg.serverId, capability: msg.capability }); break;
+        case 'capabilityLoadFailed': dispatch({ type: 'CAPABILITY_LOAD_FAILED', serverId: msg.serverId, capability: msg.capability, requestId: msg.requestId }); break;
         case 'toolsListed':     dispatch({ type: 'TOOLS_LISTED',      serverId: msg.serverId, tools: msg.tools }); break;
         case 'resourcesListed': dispatch({ type: 'RESOURCES_LISTED',  serverId: msg.serverId, resources: msg.resources }); break;
         case 'promptsListed':   dispatch({ type: 'PROMPTS_LISTED',    serverId: msg.serverId, prompts: msg.prompts }); break;
@@ -601,6 +670,18 @@ export default function App() {
 
     if (target) {
       dispatch({ type: 'FOCUS_LOG_ENTRY', logEntryId: target.id });
+    } else {
+      dispatch({ type: 'SELECT_TAB', tab: 'log' });
+    }
+  };
+
+  const handleOpenCapabilityLog = (capability: CapabilityKind) => {
+    const serverId = state.selectedServerId;
+    if (!serverId) return;
+
+    const requestId = state.capabilityLoadErrorRequestIds[capability][serverId];
+    if (requestId) {
+      handleOpenLogForRequest(requestId);
     } else {
       dispatch({ type: 'SELECT_TAB', tab: 'log' });
     }
@@ -926,6 +1007,7 @@ export default function App() {
                 onStartRequest={handleStartRequest}
                 onSaveAsTest={handleSaveAsTest}
                 onOpenLogForRequest={handleOpenLogForRequest}
+                onOpenServerLog={() => handleOpenCapabilityLog('tools')}
               />
             </div>
             <div style={state.activeTab !== 'resources' ? { display: 'none' } : { display: 'contents' }}>
@@ -937,6 +1019,7 @@ export default function App() {
                 requests={state.requests}
                 isConnected={isConnected}
                 onStartRequest={handleStartRequest}
+                onOpenServerLog={() => handleOpenCapabilityLog('resources')}
               />
             </div>
             <div style={state.activeTab !== 'prompts' ? { display: 'none' } : { display: 'contents' }}>
@@ -948,6 +1031,7 @@ export default function App() {
                 requests={state.requests}
                 isConnected={isConnected}
                 onStartRequest={handleStartRequest}
+                onOpenServerLog={() => handleOpenCapabilityLog('prompts')}
               />
             </div>
             {state.activeTab === 'history' && (

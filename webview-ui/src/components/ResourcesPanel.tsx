@@ -13,12 +13,13 @@ interface Props {
   requests: Record<string, RequestEntry>;
   isConnected: boolean;
   onStartRequest: (id: string, info: RequestInfo) => void;
+  onOpenServerLog: () => void;
 }
 
 let reqCounter = 0;
 function nextReqId() { return `res-${Date.now()}-${++reqCounter}`; }
 
-export default function ResourcesPanel({ serverId, resources, loadState, requests, isConnected, onStartRequest }: Props) {
+export default function ResourcesPanel({ serverId, resources, loadState, requests, isConnected, onStartRequest, onOpenServerLog }: Props) {
   const { listRef, handleRef } = usePanelResize({ storageKey: 'panel-list-width:resources' });
   const [selected, setSelected] = useState<McpResource | null>(null);
   const [search, setSearch] = useState('');
@@ -83,6 +84,9 @@ export default function ResourcesPanel({ serverId, resources, loadState, request
                     ? 'No resources available.'
                     : 'Connect to load resources.'}
             </p>
+            {loadState === 'error' && (
+              <button className="btn btn-secondary empty-state-action" onClick={onOpenServerLog}>View log</button>
+            )}
           </div>
         ) : filteredResources.length === 0 ? (
           <div className="empty-state empty-state-compact"><p>No resources match "{search}".</p></div>
@@ -161,11 +165,11 @@ export default function ResourcesPanel({ serverId, resources, loadState, request
               </div>
             )}
           </>
-        ) : (
+        ) : resources.length > 0 ? (
           <div className="empty-state">
             <p>Select a resource to read its content.</p>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

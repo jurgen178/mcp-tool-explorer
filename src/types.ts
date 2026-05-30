@@ -168,7 +168,7 @@ export type MessageToWebview =
   | { type: 'serverEvent'; serverId: string; event: McpEventEntry }
   | { type: 'disconnected'; serverId: string }
   | { type: 'connectionError'; serverId: string; error: string }
-  | { type: 'capabilityLoadFailed'; serverId: string; capability: CapabilityKind; error: string }
+  | { type: 'capabilityLoadFailed'; serverId: string; capability: CapabilityKind; requestId: string; error: string }
   | { type: 'toolsListed'; serverId: string; tools: McpTool[] }
   | { type: 'toolResult'; requestId: string; result: unknown; isError: boolean; structuredContent?: unknown }
   | { type: 'resourcesListed'; serverId: string; resources: McpResource[] }

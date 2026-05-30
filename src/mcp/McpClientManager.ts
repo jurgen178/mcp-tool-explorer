@@ -856,7 +856,7 @@ export class McpClientManager {
     this._logListeners.delete(serverId);
   }
 
-  async listTools(serverId: string): Promise<McpTool[]> {
+  async listTools(serverId: string, requestId?: string): Promise<McpTool[]> {
     if (!this._supportsCapability(serverId, 'tools')) {
       this._log(serverId, 'info', 'Tools not supported by this server');
       return [];
@@ -872,6 +872,7 @@ export class McpClientManager {
       },
       result => this._serializeLogValue(result),
       result => this._summarizeLogValue('Tools', result),
+      requestId,
     );
   }
 
@@ -895,7 +896,7 @@ export class McpClientManager {
     );
   }
 
-  async listResources(serverId: string): Promise<McpResource[]> {
+  async listResources(serverId: string, requestId?: string): Promise<McpResource[]> {
     if (!this._supportsCapability(serverId, 'resources')) {
       this._log(serverId, 'info', 'Resources not supported by this server');
       return [];
@@ -911,6 +912,7 @@ export class McpClientManager {
       },
       result => this._serializeLogValue(result),
       result => this._summarizeLogValue('Resources', result),
+      requestId,
     );
   }
 
@@ -929,7 +931,7 @@ export class McpClientManager {
     );
   }
 
-  async listPrompts(serverId: string): Promise<McpPrompt[]> {
+  async listPrompts(serverId: string, requestId?: string): Promise<McpPrompt[]> {
     if (!this._supportsCapability(serverId, 'prompts')) {
       this._log(serverId, 'info', 'Prompts not supported by this server');
       return [];
@@ -945,6 +947,7 @@ export class McpClientManager {
       },
       result => this._serializeLogValue(result),
       result => this._summarizeLogValue('Prompts', result),
+      requestId,
     );
   }
 

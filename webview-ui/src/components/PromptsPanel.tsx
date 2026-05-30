@@ -13,6 +13,7 @@ interface Props {
   requests: Record<string, RequestEntry>;
   isConnected: boolean;
   onStartRequest: (id: string, info: RequestInfo) => void;
+  onOpenServerLog: () => void;
 }
 
 let reqCounter = 0;
@@ -37,7 +38,7 @@ function getVisibleCompletionValues(values: string[] | undefined, currentValue: 
   return values.filter(value => value !== currentValue);
 }
 
-export default function PromptsPanel({ serverId, prompts, loadState, requests, isConnected, onStartRequest }: Props) {
+export default function PromptsPanel({ serverId, prompts, loadState, requests, isConnected, onStartRequest, onOpenServerLog }: Props) {
   const { listRef, handleRef } = usePanelResize({ storageKey: 'panel-list-width:prompts' });
   const [selected, setSelected] = useState<McpPrompt | null>(null);
   const [search, setSearch] = useState('');
@@ -193,6 +194,9 @@ export default function PromptsPanel({ serverId, prompts, loadState, requests, i
                     ? 'No prompts available.'
                     : 'Connect to load prompts.'}
             </p>
+            {loadState === 'error' && (
+              <button className="btn btn-secondary empty-state-action" onClick={onOpenServerLog}>View log</button>
+            )}
           </div>
         ) : filteredPrompts.length === 0 ? (
           <div className="empty-state empty-state-compact"><p>No prompts match "{search}".</p></div>
@@ -326,11 +330,11 @@ export default function PromptsPanel({ serverId, prompts, loadState, requests, i
               </div>
             )}
           </>
-        ) : (
+        ) : prompts.length > 0 ? (
           <div className="empty-state">
             <p>Select a prompt to fill its arguments and retrieve the messages.</p>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

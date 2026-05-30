@@ -18,6 +18,7 @@ export class McpToolExplorerPanel {
   private _servers = new Map<string, McpServerConfig>();
   /** Timestamp until which file-watcher events for the test file should be ignored (avoids echo after own writes). */
   private _ignoreWatcherUntil = 0;
+  private _capabilityRequestCounter = 0;
 
   // Static factory
 
@@ -365,31 +366,36 @@ export class McpToolExplorerPanel {
 
   /** Best-effort: load tools, resources, and prompts after a successful connect. */
   private async _loadCapabilities(serverId: string): Promise<void> {
-    const loadResultMessage = (capability: CapabilityKind, reason: unknown): MessageToWebview => ({
+    const loadResultMessage = (capability: CapabilityKind, requestId: string, reason: unknown): MessageToWebview => ({
       type: 'capabilityLoadFailed',
       serverId,
       capability,
+      requestId,
       error: reason instanceof Error ? reason.message : String(reason),
     });
 
     const loadCapability = <T,>(
       capability: CapabilityKind,
-      load: () => Promise<T>,
+      load: (requestId: string) => Promise<T>,
       onSuccess: (value: T) => void,
-    ): Promise<void> => load()
+    ): Promise<void> => {
+      const requestId = `capability-${capability}-${Date.now()}-${++this._capabilityRequestCounter}`;
+
+      return load(requestId)
       .then(onSuccess)
       .catch(reason => {
-        this._post(loadResultMessage(capability, reason));
+        this._post(loadResultMessage(capability, requestId, reason));
       });
+    };
 
     await Promise.all([
-      loadCapability('tools', () => this._clientManager.listTools(serverId), tools => {
+      loadCapability('tools', requestId => this._clientManager.listTools(serverId, requestId), tools => {
         this._post({ type: 'toolsListed', serverId, tools });
       }),
-      loadCapability('resources', () => this._clientManager.listResources(serverId), resources => {
+      loadCapability('resources', requestId => this._clientManager.listResources(serverId, requestId), resources => {
         this._post({ type: 'resourcesListed', serverId, resources });
       }),
-      loadCapability('prompts', () => this._clientManager.listPrompts(serverId), prompts => {
+      loadCapability('prompts', requestId => this._clientManager.listPrompts(serverId, requestId), prompts => {
         this._post({ type: 'promptsListed', serverId, prompts });
       }),
     ]);
