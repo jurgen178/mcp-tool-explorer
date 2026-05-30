@@ -1,4 +1,5 @@
 import { URL } from 'url';
+import * as vscode from 'vscode';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
@@ -10,7 +11,7 @@ import {
   ResourceListChangedNotificationSchema,
   ToolListChangedNotificationSchema,
 } from '@modelcontextprotocol/sdk/types.js';
-import type { McpEventEntry, McpServerConfig, McpServerDetails, McpTool, McpResource, McpPrompt } from '../types';
+import type { AuthAccountSelection, AuthAccountSelectionOverrides, McpEventEntry, McpServerConfig, McpServerDetails, McpTool, McpResource, McpPrompt } from '../types';
 import { createOAuthHandler } from './McpOAuth';
 import { createLoggingFetch, type FetchLogEntry } from './LoggingFetch';
 import { clampLogText } from './logText';
@@ -324,6 +325,14 @@ export class McpClientManager {
         SENSITIVE_HEADER_NAMES.has(name.toLowerCase()) ? '*** redacted ***' : value,
       ]),
     );
+  }
+
+  private _getAuthAccountSelection(config: McpServerConfig): AuthAccountSelection {
+    const overrides = vscode.workspace
+      .getConfiguration('mcpToolExplorer')
+      .get<AuthAccountSelectionOverrides>('auth.accountSelection') ?? {};
+    const value = overrides[config.id] ?? overrides[config.name] ?? 'auto';
+    return value === 'prompt' || value === 'disabled' ? value : 'auto';
   }
 
   private async _measureRequest<T>(
@@ -760,7 +769,10 @@ export class McpClientManager {
 
     // Wrap fetch: logging records every request, OAuth handles 401 token acquisition
     const loggingFetch = createLoggingFetch((entry) => this._logFetchEntry(config.id, entry));
-    const authenticatedFetch = createOAuthHandler(loggingFetch);
+    const authenticatedFetch = createOAuthHandler(loggingFetch, {
+      accountSelection: this._getAuthAccountSelection(config),
+      serverName: config.name,
+    });
 
     if (config.type === 'sse') {
       return new SSEClientTransport(url, {

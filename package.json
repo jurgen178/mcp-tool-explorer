@@ -27,6 +27,20 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "MCP Tool Explorer",
+      "properties": {
+        "mcpToolExplorer.auth.accountSelection": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "Per-server OAuth account selection behavior. Keys can be MCP server names or internal server IDs. Values: `auto` uses the current VS Code account silently when possible, `prompt` asks which account to use when OAuth is required, and `disabled` skips the automatic OAuth retry after HTTP 401.",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["auto", "prompt", "disabled"]
+          }
+        }
+      }
+    },
     "commands": [
       {
         "command": "mcpToolExplorer.open",

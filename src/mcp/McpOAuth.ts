@@ -7,12 +7,24 @@
  * required scopes, and acquires a token via `vscode.authentication`.
  */
 import * as vscode from 'vscode';
+import type { AuthAccountSelection } from '../types';
+
+interface OAuthOptions {
+  accountSelection?: AuthAccountSelection;
+  serverName?: string;
+}
 
 export function createOAuthHandler(
   baseFetch: typeof globalThis.fetch = globalThis.fetch,
+  options: OAuthOptions = {},
 ): typeof globalThis.fetch {
   /** Cached access token — reused across requests until a fresh 401 arrives. */
   let cachedToken: string | undefined;
+  const accountSelection = options.accountSelection ?? 'auto';
+
+  if (accountSelection === 'disabled') {
+    return baseFetch;
+  }
 
   const oauthFetch: typeof globalThis.fetch = async (input, init?) => {
     // Inject cached token if available
@@ -26,7 +38,7 @@ export function createOAuthHandler(
 
     if (response.status === 401) {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
-      const token = await discoverAndAcquireToken(response, url);
+      const token = await discoverAndAcquireToken(response, url, accountSelection, options.serverName);
       if (token) {
         cachedToken = token;
         const retryHeaders = new Headers(init?.headers);
@@ -63,6 +75,8 @@ function resolveProviderId(authServer: string): string | undefined {
 async function discoverAndAcquireToken(
   response: Response,
   requestUrl: string,
+  accountSelection: AuthAccountSelection,
+  serverName: string | undefined,
 ): Promise<string | undefined> {
   const wwwAuth = response.headers.get('www-authenticate') ?? '';
   const rmMatch = wwwAuth.match(/resource_metadata="([^"]+)"/i);
@@ -102,8 +116,21 @@ async function discoverAndAcquireToken(
     const providerId = resolveProviderId(authServer);
     if (!providerId) return undefined; // unknown provider — cannot acquire token
 
-    let session = await vscode.authentication.getSession(providerId, tokenScopes, { silent: true });
-    if (!session) {
+    let session: vscode.AuthenticationSession | undefined;
+    if (accountSelection === 'prompt') {
+      session = await vscode.authentication.getSession(providerId, tokenScopes, {
+        forceNewSession: {
+          detail: serverName
+            ? `Choose the account to use for MCP server "${serverName}".`
+            : 'Choose the account to use for this MCP server.',
+        },
+        clearSessionPreference: true,
+      });
+    } else {
+      session = await vscode.authentication.getSession(providerId, tokenScopes, { silent: true });
+    }
+
+    if (!session && accountSelection === 'auto') {
       session = await vscode.authentication.getSession(providerId, tokenScopes, { createIfNone: true });
     }
     return session?.accessToken;

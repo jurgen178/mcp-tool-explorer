@@ -173,6 +173,11 @@ body {
   margin-left: 2px;
 }
 
+.server-auth-override-active {
+  color: var(--vscode-button-foreground, #fff);
+  background: var(--vscode-button-background, #0e639c);
+}
+
 .server-remove-btn {
   font-size: 11px;
 }
@@ -739,6 +744,54 @@ body {
 .tool-panel-mode-toggle { margin-left: auto; font-size: 11px; padding: 1px 8px; }
 .form-note { font-size: 12px; color: var(--vscode-descriptionForeground); margin-bottom: 12px; }
 .form-select-auto { width: auto; }
+
+.auth-server-name {
+  margin-top: -10px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.auth-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.auth-option {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--vscode-widget-border, #444);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.auth-option input {
+  margin-top: 2px;
+}
+
+.auth-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.auth-option-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.auth-option-description {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.35;
+}
+
+.auth-reconnect-note {
+  margin-top: 12px;
+  margin-bottom: 0;
+}
 
 .result-area { margin-top: 16px; }
 .result-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }

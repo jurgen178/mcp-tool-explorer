@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import type { McpServerConfig, ConnectionStatus, McpServerDetails } from '../types';
+import type { AuthAccountSelectionOverrides, McpServerConfig, ConnectionStatus, McpServerDetails } from '../types';
 import { ConfettiOverlay } from './MatrixProtocol';
 
 interface CapabilitySupport {
@@ -14,12 +14,14 @@ interface Props {
   serverStatus: Record<string, ConnectionStatus>;
   serverDetails: Record<string, McpServerDetails | undefined>;
   serverItems: Record<string, { tools: number; resources: number; prompts: number }>;
+  authOverrides: AuthAccountSelectionOverrides;
   selectedServerId: string | null;
   onSelect: (id: string) => void;
   onConnect: (id: string) => void;
   onDisconnect: (id: string) => void;
   onRemove: (id: string) => void;
   onEdit: (server: McpServerConfig) => void;
+  onAuth: (server: McpServerConfig) => void;
   onAdd: () => void;
 }
 
@@ -73,8 +75,8 @@ function buildTooltip(server: McpServerConfig, status: ConnectionStatus, details
 }
 
 export default function Sidebar({
-  servers, serversLoading, serverStatus, serverDetails, serverItems, selectedServerId,
-  onSelect, onConnect, onDisconnect, onRemove, onEdit, onAdd,
+  servers, serversLoading, serverStatus, serverDetails, serverItems, authOverrides, selectedServerId,
+  onSelect, onConnect, onDisconnect, onRemove, onEdit, onAuth, onAdd,
 }: Props) {
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
   const [confetti, setConfetti] = useState(false);
@@ -112,6 +114,7 @@ export default function Sidebar({
           const status: ConnectionStatus = serverStatus[server.id] ?? 'disconnected';
           const isSelected = server.id === selectedServerId;
           const capabilitySupport = getCapabilitySupport(serverDetails[server.id], serverItems[server.id]);
+          const authOverride = authOverrides[server.id] ?? authOverrides[server.name];
           return (
             <div
               key={server.id}
@@ -133,6 +136,14 @@ export default function Sidebar({
               <span className="server-type-badge">{server.type}</span>
 
               {/* Action buttons — only visible on hover via CSS parent context */}
+              {server.type !== 'stdio' && (
+                <button
+                  className={`icon-btn server-action-btn${authOverride ? ' server-auth-override-active' : ''}`}
+                  title={`Authentication override${authOverride ? `: ${authOverride}` : ''}`}
+                  onClick={e => { e.stopPropagation(); onAuth(server); }}
+                >Auth</button>
+              )}
+
               {status === 'disconnected' || status === 'error' ? (
                 <button
                   className="icon-btn server-action-btn"

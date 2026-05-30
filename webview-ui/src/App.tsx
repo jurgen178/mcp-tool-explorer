@@ -3,7 +3,7 @@ import { postMessage } from './vscode';
 import type {
   McpEventEntry, McpServerConfig, McpServerDetails, McpTool, McpResource, McpPrompt,
   MessageToWebview, ConnectionStatus, RequestEntry, RequestInfo, HistoryEntry, CapabilityKind, CapabilityLoadState,
-  TestCase, TestRunResult,
+  TestCase, TestRunResult, AuthAccountSelection, AuthAccountSelectionOverrides,
 } from './types';
 import Sidebar from './components/Sidebar';
 import ToolsPanel from './components/ToolsPanel';
@@ -14,6 +14,7 @@ import ConnectionLogPanel from './components/ConnectionLogPanel';
 import EventsPanel from './components/EventsPanel';
 import TestsPanel from './components/TestsPanel';
 import AddServerModal from './components/AddServerModal';
+import AuthOverrideModal from './components/AuthOverrideModal.tsx';
 import CopyButton from './components/CopyButton';
 import { useKonamiCode, MatrixRainOverlay } from './components/MatrixProtocol';
 
@@ -66,8 +67,10 @@ interface AppState {
   requests: Record<string, RequestEntry>;
   history: HistoryEntry[];
   connectionLogs: Record<string, ConnectionLogEntry[]>;
+  authOverrides: AuthAccountSelectionOverrides;
   showAddServer: boolean;
   editingServer: McpServerConfig | null;
+  authServer: McpServerConfig | null;
   tests: TestCase[];
   testVariables: Record<string, string>;
   testResults: Record<string, TestRunResult>;
@@ -79,6 +82,9 @@ type Action =
   | { type: 'SERVER_ADDED'; server: McpServerConfig }
   | { type: 'SERVER_UPDATED'; server: McpServerConfig }
   | { type: 'SERVER_REMOVED'; serverId: string }
+  | { type: 'AUTH_OVERRIDES_LOADED'; overrides: AuthAccountSelectionOverrides }
+  | { type: 'SHOW_AUTH_SERVER'; server: McpServerConfig | null }
+  | { type: 'AUTH_OVERRIDE_SET'; server: McpServerConfig; value: AuthAccountSelection }
   | { type: 'CONNECTING'; serverId: string }
   | { type: 'CONNECTED'; serverId: string }
   | { type: 'SERVER_DETAILS_LOADED'; serverId: string; details: McpServerDetails }
@@ -126,8 +132,10 @@ const initialState: AppState = {
   requests: {},
   history: [],
   connectionLogs: {},
+  authOverrides: {},
   showAddServer: false,
   editingServer: null,
+  authServer: null,
   tests: [],
   testVariables: {},
   testResults: {},
@@ -248,6 +256,22 @@ function reducer(state: AppState, action: Action): AppState {
         requests,
         selectedServerId: state.selectedServerId === action.serverId ? null : state.selectedServerId,
       };
+    }
+
+    case 'AUTH_OVERRIDES_LOADED':
+      return { ...state, authOverrides: action.overrides };
+
+    case 'SHOW_AUTH_SERVER':
+      return { ...state, authServer: action.server };
+
+    case 'AUTH_OVERRIDE_SET': {
+      const authOverrides = { ...state.authOverrides };
+      delete authOverrides[action.server.id];
+      delete authOverrides[action.server.name];
+      if (action.value !== 'auto') {
+        authOverrides[action.server.name] = action.value;
+      }
+      return { ...state, authOverrides, authServer: null };
     }
 
     case 'CONNECTING':
@@ -439,6 +463,7 @@ export default function App() {
         case 'serverAdded':     dispatch({ type: 'SERVER_ADDED',      server: msg.server }); break;
         case 'serverUpdated':   dispatch({ type: 'SERVER_UPDATED',    server: msg.server }); break;
         case 'serverRemoved':   dispatch({ type: 'SERVER_REMOVED',    serverId: msg.serverId }); break;
+        case 'authOverridesLoaded': dispatch({ type: 'AUTH_OVERRIDES_LOADED', overrides: msg.overrides }); break;
         case 'connected':       dispatch({ type: 'CONNECTED',         serverId: msg.serverId }); break;
         case 'serverDetailsLoaded': dispatch({ type: 'SERVER_DETAILS_LOADED', serverId: msg.serverId, details: msg.details }); break;
         case 'serverEvent':     dispatch({ type: 'SERVER_EVENT',      serverId: msg.serverId, event: msg.event }); break;
@@ -516,6 +541,11 @@ export default function App() {
 
   const handleEditServer = (server: McpServerConfig) => {
     dispatch({ type: 'SHOW_EDIT_SERVER', server });
+  };
+
+  const handleSaveAuthOverride = (server: McpServerConfig, value: AuthAccountSelection) => {
+    dispatch({ type: 'AUTH_OVERRIDE_SET', server, value });
+    postMessage({ type: 'setAuthOverride', serverId: server.id, serverName: server.name, accountSelection: value });
   };
 
   const handleUpdateServer = (config: Omit<McpServerConfig, 'id' | 'source'>) => {
@@ -745,12 +775,14 @@ export default function App() {
             resources: state.resources[s.id]?.length ?? 0,
             prompts: state.prompts[s.id]?.length ?? 0,
           }]))}
+          authOverrides={state.authOverrides}
           selectedServerId={state.selectedServerId}
           onSelect={handleSelectServer}
           onConnect={handleConnect}
           onDisconnect={handleDisconnect}
           onRemove={handleRemoveServer}
           onEdit={handleEditServer}
+          onAuth={server => dispatch({ type: 'SHOW_AUTH_SERVER', server })}
           onAdd={() => dispatch({ type: 'SHOW_ADD_SERVER', show: true })}
         />
         <div className="resize-handle" ref={sidebarHandleRef} />
@@ -961,6 +993,16 @@ export default function App() {
           initialConfig={state.editingServer}
           onAdd={handleUpdateServer}
           onClose={() => dispatch({ type: 'SHOW_EDIT_SERVER', server: null })}
+        />
+      )}
+
+      {state.authServer && (
+        <AuthOverrideModal
+          server={state.authServer}
+          value={state.authOverrides[state.authServer.id] ?? state.authOverrides[state.authServer.name] ?? 'auto'}
+          isConnected={state.serverStatus[state.authServer.id] === 'connected'}
+          onSave={(value: AuthAccountSelection) => handleSaveAuthOverride(state.authServer!, value)}
+          onClose={() => dispatch({ type: 'SHOW_AUTH_SERVER', server: null })}
         />
       )}
     </div>

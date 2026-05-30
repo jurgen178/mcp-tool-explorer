@@ -18,6 +18,9 @@ export interface McpServerConfig {
   source: 'vscode-mcp.json' | 'settings' | 'manual';
 }
 
+export type AuthAccountSelection = 'auto' | 'prompt' | 'disabled';
+export type AuthAccountSelectionOverrides = Record<string, AuthAccountSelection>;
+
 export interface McpTool {
   name: string;
   description?: string;
@@ -144,6 +147,7 @@ export type MessageToExtension =
   | { type: 'addServer'; config: Omit<McpServerConfig, 'id' | 'source'> }
   | { type: 'updateServer'; serverId: string; config: Omit<McpServerConfig, 'id' | 'source'> }
   | { type: 'removeServer'; serverId: string }
+  | { type: 'setAuthOverride'; serverId: string; serverName: string; accountSelection: AuthAccountSelection }
   | { type: 'cancelConnect'; serverId: string }
   | { type: 'loadTests' }
   | { type: 'saveTests'; tests: TestCase[]; variables: Record<string, string> }
@@ -158,6 +162,7 @@ export type MessageToWebview =
   | { type: 'serverAdded'; server: McpServerConfig }
   | { type: 'serverUpdated'; server: McpServerConfig }
   | { type: 'serverRemoved'; serverId: string }
+  | { type: 'authOverridesLoaded'; overrides: AuthAccountSelectionOverrides }
   | { type: 'connected'; serverId: string }
   | { type: 'serverDetailsLoaded'; serverId: string; details: McpServerDetails }
   | { type: 'serverEvent'; serverId: string; event: McpEventEntry }

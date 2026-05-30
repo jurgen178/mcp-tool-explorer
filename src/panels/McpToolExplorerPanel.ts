@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { McpClientManager } from '../mcp/McpClientManager';
 import { McpConfigDiscovery } from '../mcp/McpConfigDiscovery';
-import type { CapabilityKind, McpServerConfig, MessageToExtension, MessageToWebview, TestAssertion, TestRunResult } from '../types';
+import type { AuthAccountSelection, AuthAccountSelectionOverrides, CapabilityKind, McpServerConfig, MessageToExtension, MessageToWebview, TestAssertion, TestRunResult } from '../types';
 
 export class McpToolExplorerPanel {
   public static currentPanel: McpToolExplorerPanel | undefined;
@@ -95,6 +95,7 @@ export class McpToolExplorerPanel {
     switch (message.type) {
       case 'getServers': {
         await this._sendServers();
+        this._sendAuthOverrides();
         await this._loadAndSendTests();
         break;
       }
@@ -227,6 +228,12 @@ export class McpToolExplorerPanel {
         await this._configDiscovery.removeManualServer(message.serverId);
         this._servers.delete(message.serverId);
         this._post({ type: 'serverRemoved', serverId: message.serverId });
+        break;
+      }
+
+      case 'setAuthOverride': {
+        await this._setAuthOverride(message.serverId, message.serverName, message.accountSelection);
+        this._sendAuthOverrides();
         break;
       }
 
@@ -422,6 +429,30 @@ export class McpToolExplorerPanel {
 
   private _post(message: MessageToWebview): void {
     this._panel.webview.postMessage(message);
+  }
+
+  private _getAuthOverrides(): AuthAccountSelectionOverrides {
+    return vscode.workspace
+      .getConfiguration('mcpToolExplorer')
+      .get<AuthAccountSelectionOverrides>('auth.accountSelection') ?? {};
+  }
+
+  private _sendAuthOverrides(): void {
+    this._post({ type: 'authOverridesLoaded', overrides: this._getAuthOverrides() });
+  }
+
+  private async _setAuthOverride(serverId: string, serverName: string, accountSelection: AuthAccountSelection): Promise<void> {
+    const overrides = { ...this._getAuthOverrides() };
+    const key = overrides[serverId] ? serverId : serverName;
+    if (accountSelection === 'auto') {
+      delete overrides[serverId];
+      delete overrides[serverName];
+    } else {
+      overrides[key] = accountSelection;
+    }
+    await vscode.workspace
+      .getConfiguration('mcpToolExplorer')
+      .update('auth.accountSelection', overrides, vscode.ConfigurationTarget.Workspace);
   }
 
   // HTML generation
