@@ -12,3 +12,11 @@ webview-ui/tsconfig.json
 webview-ui/vite.config.ts
 webview-ui/package.json
 webview-ui/index.html
+doc/**
+.vs/**
+webview-ui/package-lock.json
+webview-ui/tsconfig.tsbuildinfo
+dist/extension.js.map
+deploy.md
+.gitignore
+mcp-tool-explorer.png
