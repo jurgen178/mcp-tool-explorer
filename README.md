@@ -6,7 +6,7 @@ A VS Code extension for inspecting and testing [Model Context Protocol (MCP)](ht
 
 <br />
 
-Connect to any MCP server, browse its capabilities, call tools with live input forms, read resources, render prompts, inspect notifications, and review connection traffic. All without leaving your editor.
+Connect to local, remote, and authenticated MCP servers, browse their capabilities, call tools with live input forms, read resources, render prompts, inspect notifications, and review connection traffic. All without leaving your editor.
 
 Supports **MCP Apps**: tools that ship an interactive UI rendered directly inside the explorer.
 
@@ -45,6 +45,11 @@ Supports **MCP Apps**: tools that ship an interactive UI rendered directly insid
 - **Manual registration**: add any server on the fly via the Add Server dialog
 - **All three transports**: `stdio`, `SSE`, and `Streamable HTTP`
 - **Capability indicators**: each connected server shows T / R / P badges: green = items available, dimmed = declared but empty, hidden = not supported
+
+### Authentication
+- Automatically handles OAuth-protected HTTP/SSE servers that advertise resource metadata via `WWW-Authenticate`
+- Uses VS Code's built-in authentication providers to acquire bearer tokens when a known authorization server is advertised
+- Per-server authentication behaviour can be set to **Automatic**, **Choose account**, or **Disabled** without changing MCP config files
 
 ### Tools
 - Browse all tools exposed by a server with their descriptions and parameter schemas
@@ -142,7 +147,7 @@ If your workspace has a `.vscode/mcp.json` file, servers are discovered automati
 
 Click **+ Add Server** in the sidebar and fill in the connection details:
 - **stdio** servers support `command`, `args` (quote arguments that contain spaces), `env`, and an optional working directory (`cwd`)
-- **HTTP / SSE** servers support a `url` and optional request `headers`
+- **HTTP / SSE** servers support a `url`, optional request `headers`, and automatic OAuth when the server advertises it
 
 Manually added servers persist for the lifetime of the VS Code window.
 
