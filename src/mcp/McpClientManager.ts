@@ -180,6 +180,7 @@ export class McpClientManager {
 
   private _emitEvent(serverId: string, event: Omit<McpEventEntry, 'id' | 'timestamp'>): void {
     const now = Date.now();
+    this._log(serverId, 'info', `MCP event ${event.method} received`);
     this._onEvent?.(serverId, {
       id: `evt-${now}-${++this._eventCounter}`,
       timestamp: now,
