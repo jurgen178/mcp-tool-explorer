@@ -5,18 +5,21 @@
 import { clampLogText } from './logText';
 import { SENSITIVE_HEADER_NAMES } from './sensitiveHeaders';
 
+export const SSE_RESPONSE_BODY_PLACEHOLDER = '[SSE stream response - messages are handled by the MCP SDK]';
+
 export interface FetchLogEntry {
   timestamp: number;
   method: string;
   url: string;
   rpcMethod: string;
+  requestCorrelationId?: string;
   requestHeaders: Record<string, string>;
   requestBody: string;
   status: number | null;
   statusText: string;
   responseHeaders: Record<string, string>;
   responseBody: string;
-  responseBodyPromise?: Promise<string>;
+  rawResponseBodyForDiagnostics?: Promise<string>;
   bodyExcerpt: string;
   error: string | null;
   durationMs: number;
@@ -32,6 +35,7 @@ function redactHeaders(headers: Headers): Record<string, string> {
 
 export function createLoggingFetch(
   onLog: (entry: FetchLogEntry) => void,
+  getRequestCorrelationId?: () => string | undefined,
 ): typeof globalThis.fetch {
   const loggingFetch: typeof globalThis.fetch = async (input, init?) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
@@ -50,6 +54,7 @@ export function createLoggingFetch(
       }
     } catch { /* not JSON or no method */ }
 
+    const requestCorrelationId = getRequestCorrelationId?.();
     const start = Date.now();
     try {
       const response = await globalThis.fetch(input, init);
@@ -61,15 +66,15 @@ export function createLoggingFetch(
       const contentType = response.headers.get('content-type') ?? '';
 
       if (contentType.includes('text/event-stream')) {
-        const responseBodyPromise = rpcMethod
-          ? response.clone().text().then(text => clampLogText(text)).catch(() => '')
+        const rawResponseBodyForDiagnostics = rpcMethod
+          ? response.clone().text().catch(() => '')
           : undefined;
         onLog({
-          timestamp: start, method, url, rpcMethod, requestHeaders: reqHeaders,
+          timestamp: start, method, url, rpcMethod, requestCorrelationId, requestHeaders: reqHeaders,
           requestBody, status: response.status, statusText: response.statusText,
           responseHeaders: resHeaders,
-          responseBody: '[streaming SSE response]',
-          responseBodyPromise,
+          responseBody: SSE_RESPONSE_BODY_PLACEHOLDER,
+          rawResponseBodyForDiagnostics,
           bodyExcerpt: '',
           error: null,
           durationMs: Date.now() - start,
@@ -91,7 +96,7 @@ export function createLoggingFetch(
       } catch { /* */ }
 
       onLog({
-        timestamp: start, method, url, rpcMethod, requestHeaders: reqHeaders,
+        timestamp: start, method, url, rpcMethod, requestCorrelationId, requestHeaders: reqHeaders,
         requestBody, status: response.status, statusText: response.statusText,
         responseHeaders: resHeaders, responseBody, bodyExcerpt, error: null,
         durationMs: Date.now() - start,
@@ -99,7 +104,7 @@ export function createLoggingFetch(
       return response;
     } catch (err: unknown) {
       onLog({
-        timestamp: start, method, url, rpcMethod, requestHeaders: reqHeaders,
+        timestamp: start, method, url, rpcMethod, requestCorrelationId, requestHeaders: reqHeaders,
         requestBody, status: null, statusText: '', responseHeaders: {},
         responseBody: '', bodyExcerpt: '', error: clampLogText(err instanceof Error ? err.message : String(err)),
         durationMs: Date.now() - start,

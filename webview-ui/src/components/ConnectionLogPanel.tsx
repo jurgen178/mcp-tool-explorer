@@ -5,6 +5,7 @@ import JsonViewer from './JsonViewer';
 
 interface Props {
   logs: ConnectionLogEntry[];
+  focusedLogEntryId?: string;
   onClear: () => void;
 }
 
@@ -74,12 +75,12 @@ function Badge({ text, background }: { text: string; background?: string }) {
 }
 
 function DetailSections({ sections }: { sections: LogSection[] }) {
-  const isJson = (kind: string) => kind === 'request' || kind === 'response';
+  const isJson = (sectionType: string) => sectionType === 'request' || sectionType === 'response';
   return (
     <div>
       {sections.map((section, i) => {
         let parsed: unknown = undefined;
-        if (isJson(section.kind)) {
+        if (isJson(section.sectionType)) {
           // Request and response bodies can be explored with the smart JSON
           // viewer when they are valid JSON. Headers and text stay plain.
           try { parsed = JSON.parse(section.content); } catch { /* plain text fallback */ }
@@ -89,14 +90,14 @@ function DetailSections({ sections }: { sections: LogSection[] }) {
             <div style={{
               fontSize: 10,
               fontWeight: 700,
-              color: SECTION_LABEL_COLORS[section.kind],
+              color: SECTION_LABEL_COLORS[section.sectionType],
               textTransform: 'uppercase',
               letterSpacing: '0.06em',
               marginBottom: 3,
             }}>
-              {SECTION_LABELS[section.kind] ?? section.kind}
+              {SECTION_LABELS[section.sectionType] ?? section.sectionType}
             </div>
-            <div className={isJson(section.kind) && parsed !== undefined ? 'log-json-wrap' : 'json-viewer-wrap'}>
+            <div className={isJson(section.sectionType) && parsed !== undefined ? 'log-json-wrap' : 'json-viewer-wrap'}>
               {parsed !== undefined
                 ? <JsonViewer data={parsed} />
                 : <><CopyButton text={section.content} /><pre style={PRE_STYLE}>{section.content}</pre></>}
@@ -114,15 +115,17 @@ function serializeDetail(detail: string | LogSection[] | undefined): string {
   if (!detail) return '';
   if (typeof detail === 'string') return detail;
   // Copying the log should keep the labeled section order from the UI.
-  return detail.map(s => `[${SECTION_LABELS[s.kind] ?? s.kind}]\n${s.content}`).join('\n\n');
+  return detail.map(s => `[${SECTION_LABELS[s.sectionType] ?? s.sectionType}]\n${s.content}`).join('\n\n');
 }
 
 // Main component
 
-export default function ConnectionLogPanel({ logs, onClear }: Props) {
+export default function ConnectionLogPanel({ logs, focusedLogEntryId, onClear }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [expandedIdx, setExpandedIdx] = useState<Set<number>>(new Set());
+  const entryRefs = useRef(new Map<string, HTMLDivElement>());
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [allCopied, setAllCopied] = useState(false);
 
   useEffect(() => {
@@ -132,13 +135,29 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
     if (isAtBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs.length]);
 
-  const toggleExpand = (idx: number) => {
-    setExpandedIdx(prev => {
+  useEffect(() => {
+    if (!focusedLogEntryId) return;
+
+    setExpandedIds(prev => new Set([...prev, focusedLogEntryId]));
+    setSelectedId(focusedLogEntryId);
+
+    setTimeout(() => {
+      entryRefs.current.get(focusedLogEntryId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 0);
+  }, [focusedLogEntryId]);
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds(prev => {
       const next = new Set(prev);
-      if (next.has(idx)) next.delete(idx);
-      else next.add(idx);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
+  };
+
+  const selectEntry = (id: string, hasDetail: boolean) => {
+    setSelectedId(id);
+    if (hasDetail) toggleExpand(id);
   };
 
   const handleCopyAll = useCallback(() => {
@@ -183,8 +202,9 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
             No log entries yet. Connect to a server to see diagnostic details.
           </div>
         ) : (
-          logs.map((entry, idx) => {
-            const isExpanded = expandedIdx.has(idx);
+          logs.map((entry) => {
+            const isExpanded = expandedIds.has(entry.id);
+            const isSelected = selectedId === entry.id;
             const hasDetail = !!entry.detail && (typeof entry.detail === 'string' ? entry.detail.length > 0 : entry.detail.length > 0);
             // Render RPC badge inline: "HTTP POST /mcp (tools/list)  →  200 OK"
             // → "HTTP POST /mcp [tools/list] → 200 OK"
@@ -193,19 +213,24 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
               ? { before: rpcMatch[1], badge: rpcMatch[2], after: rpcMatch[3] }
               : null;
             const isCapabilityList = /^List (?:tools|resources|prompts) finished/i.test(entry.message);
-            const isInvalidMcpResponse = entry.message.startsWith('Raw MCP response rejected by SDK');
+            const isInvalidMcpResponse = entry.diagnosticType === 'raw-response';
+            const selectedBackground = 'rgba(0,127,212,0.16)';
             return (
               <div
-                key={idx}
+                key={entry.id}
+                ref={element => {
+                  if (element) entryRefs.current.set(entry.id, element);
+                  else entryRefs.current.delete(entry.id);
+                }}
                 style={{
                   borderBottom: '1px solid var(--vscode-widget-border, #2d2d2d)',
                   ...(isInvalidMcpResponse ? {
                     borderLeft: '3px solid var(--vscode-charts-red, #f44747)',
-                    background: 'rgba(244,71,71,0.08)',
+                    background: isExpanded ? 'rgba(244,71,71,0.13)' : 'rgba(244,71,71,0.08)',
                   } : isCapabilityList ? {
                     borderLeft: '3px solid var(--vscode-charts-green, #4ec9b0)',
-                    background: 'rgba(78,201,176,0.12)',
-                  } : { borderLeft: '3px solid transparent' }),
+                    background: isExpanded ? 'rgba(78,201,176,0.16)' : 'rgba(78,201,176,0.12)',
+                  } : { borderLeft: '3px solid transparent', background: isExpanded ? 'rgba(127,127,127,0.08)' : undefined }),
                 }}
               >
                 {/* Summary line */}
@@ -215,9 +240,12 @@ export default function ConnectionLogPanel({ logs, onClear }: Props) {
                     alignItems: 'flex-start',
                     gap: 8,
                     padding: '4px 14px',
-                    cursor: hasDetail ? 'pointer' : 'default',
+                    cursor: 'pointer',
+                    background: isSelected ? selectedBackground : undefined,
+                    outline: isSelected ? '1px solid var(--vscode-focusBorder, #007fd4)' : undefined,
+                    outlineOffset: isSelected ? '-1px' : undefined,
                   }}
-                  onClick={() => hasDetail && toggleExpand(idx)}
+                  onClick={() => selectEntry(entry.id, hasDetail)}
                 >
                   <span style={{ color: 'var(--vscode-descriptionForeground)', flexShrink: 0, fontSize: 11 }}>
                     {formatTime(entry.timestamp)}

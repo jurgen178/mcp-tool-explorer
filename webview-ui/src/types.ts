@@ -196,7 +196,7 @@ export type MessageToWebview =
   | { type: 'promptsListed'; serverId: string; prompts: McpPrompt[] }
   | { type: 'promptArgumentCompletion'; requestId: string; argumentName: string; values: string[] }
   | { type: 'promptContent'; requestId: string; content: unknown }
-  | { type: 'connectionLog'; serverId: string; log: { timestamp: number; level: 'info' | 'warn' | 'error'; message: string; detail?: string | { kind: 'request' | 'response' | 'request-headers' | 'response-headers' | 'error' | 'text'; content: string }[] } }
+  | { type: 'connectionLog'; serverId: string; log: { id: string; timestamp: number; level: 'info' | 'warn' | 'error'; message: string; requestId?: string; requestPhase?: 'started' | 'finished' | 'failed'; diagnosticType?: 'raw-response'; detail?: string | { sectionType: 'request' | 'response' | 'raw-response' | 'request-headers' | 'response-headers' | 'error' | 'text'; content: string }[] } }
   | { type: 'testsLoaded'; tests: TestCase[]; variables: Record<string, string> }
   | { type: 'testRunResult'; requestId: string; result: TestRunResult }
   | { type: 'uiResourceContent'; requestId: string; html: string; csp?: { connectDomains?: string[]; resourceDomains?: string[]; frameDomains?: string[] } }

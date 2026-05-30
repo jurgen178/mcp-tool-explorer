@@ -17,6 +17,7 @@ interface Props {
   onPendingRerunConsumed: () => void;
   onStartRequest: (id: string, info: RequestInfo) => void;
   onSaveAsTest: (toolName: string, args: unknown) => void;
+  onOpenLogForRequest: (requestId: string) => void;
 }
 
 let reqCounter = 0;
@@ -80,7 +81,7 @@ function flattenArgs(obj: Record<string, unknown>, props: Record<string, SchemaP
 
 export default function ToolsPanel({
   serverId, tools, loadState, history, requests, isConnected,
-  pendingRerun, onPendingRerunConsumed, onStartRequest, onSaveAsTest,
+  pendingRerun, onPendingRerunConsumed, onStartRequest, onSaveAsTest, onOpenLogForRequest,
 }: Props) {
   const [selectedTool, setSelectedTool] = useState<McpTool | null>(null);
   const [search, setSearch] = useState('');
@@ -309,10 +310,18 @@ export default function ToolsPanel({
 
             {result && result.status !== 'pending' && (
               <div className="result-area">
-                <div className="result-header">
+                <div className="result-header tool-result-header">
                   <span className={`result-label${result.isError ? ' error' : ' ok'}`}>
                     {result.isError ? '✗ Error' : '✓ Result'}
                   </span>
+                  {result.isError && lastReqId && (
+                    <button
+                      className="btn btn-secondary"
+                      style={{ fontSize: 11, padding: '1px 8px' }}
+                      onClick={() => onOpenLogForRequest(lastReqId)}
+                      title="Open the matching connection log entry"
+                    >View log</button>
+                  )}
                 </div>
                 <ResultViewer data={result.data} isError={result.isError} />
                 {!result.isError && selectedTool._meta?.ui?.resourceUri && (

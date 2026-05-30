@@ -21,14 +21,18 @@ import { useKonamiCode, MatrixRainOverlay } from './components/MatrixProtocol';
 // State & Reducer
 
 export interface LogSection {
-  kind: 'request' | 'response' | 'raw-response' | 'request-headers' | 'response-headers' | 'error' | 'text';
+  sectionType: 'request' | 'response' | 'raw-response' | 'request-headers' | 'response-headers' | 'error' | 'text';
   content: string;
 }
 
 export interface ConnectionLogEntry {
+  id: string;
   timestamp: number;
   level: 'info' | 'warn' | 'error';
   message: string;
+  requestId?: string;
+  requestPhase?: 'started' | 'finished' | 'failed';
+  diagnosticType?: 'raw-response';
   detail?: string | LogSection[];
 }
 
@@ -67,6 +71,7 @@ interface AppState {
   requests: Record<string, RequestEntry>;
   history: HistoryEntry[];
   connectionLogs: Record<string, ConnectionLogEntry[]>;
+  focusedLogEntryId?: string;
   authOverrides: AuthAccountSelectionOverrides;
   showAddServer: boolean;
   editingServer: McpServerConfig | null;
@@ -105,6 +110,7 @@ type Action =
   | { type: 'EXT_ERROR'; message: string; requestId?: string }
   | { type: 'CONNECTION_LOG'; serverId: string; log: ConnectionLogEntry }
   | { type: 'CONNECTION_LOG_CLEAR'; serverId: string }
+  | { type: 'FOCUS_LOG_ENTRY'; logEntryId: string }
   | { type: 'HISTORY_ADD'; entry: HistoryEntry }
   | { type: 'HISTORY_UPDATE'; id: string; status: 'done' | 'error'; result?: unknown; isError?: boolean }
   | { type: 'HISTORY_CLEAR'; serverId: string }
@@ -132,6 +138,7 @@ const initialState: AppState = {
   requests: {},
   history: [],
   connectionLogs: {},
+  focusedLogEntryId: undefined,
   authOverrides: {},
   showAddServer: false,
   editingServer: null,
@@ -437,6 +444,9 @@ function reducer(state: AppState, action: Action): AppState {
     case 'SELECT_TAB':
       return { ...state, activeTab: action.tab };
 
+    case 'FOCUS_LOG_ENTRY':
+      return { ...state, activeTab: 'log', focusedLogEntryId: action.logEntryId };
+
     case 'SHOW_ADD_SERVER':
       return { ...state, showAddServer: action.show };
 
@@ -574,6 +584,26 @@ export default function App() {
     // ToolsPanel with the original args preloaded into JSON mode.
     dispatch({ type: 'SELECT_TAB', tab: 'tools' });
     setPendingRerun({ serverId: state.selectedServerId, toolName, args });
+  };
+
+  const handleOpenLogForRequest = (requestId: string) => {
+    const serverId = state.selectedServerId;
+    if (!serverId) return;
+
+    const logs = state.connectionLogs[serverId] ?? [];
+    const matchingLogs = logs.filter(log => log.requestId === requestId);
+    const recentMatchingLogs = [...matchingLogs].reverse();
+    const target = recentMatchingLogs.find(log => log.diagnosticType === 'raw-response')
+      ?? recentMatchingLogs.find(log => log.requestPhase === 'failed')
+      ?? recentMatchingLogs.find(log => log.requestPhase === 'finished')
+      ?? recentMatchingLogs.find(log => log.requestPhase === 'started')
+      ?? matchingLogs[matchingLogs.length - 1];
+
+    if (target) {
+      dispatch({ type: 'FOCUS_LOG_ENTRY', logEntryId: target.id });
+    } else {
+      dispatch({ type: 'SELECT_TAB', tab: 'log' });
+    }
   };
 
   const [pendingRerun, setPendingRerun] = React.useState<{ serverId: string | null; toolName: string; args: unknown } | null>(null);
@@ -895,6 +925,7 @@ export default function App() {
                 onPendingRerunConsumed={() => setPendingRerun(null)}
                 onStartRequest={handleStartRequest}
                 onSaveAsTest={handleSaveAsTest}
+                onOpenLogForRequest={handleOpenLogForRequest}
               />
             </div>
             <div style={state.activeTab !== 'resources' ? { display: 'none' } : { display: 'contents' }}>
@@ -937,6 +968,7 @@ export default function App() {
             {state.activeTab === 'log' && (
               <ConnectionLogPanel
                 logs={state.connectionLogs[selectedServer.id] ?? []}
+                focusedLogEntryId={state.focusedLogEntryId}
                 onClear={() => dispatch({ type: 'CONNECTION_LOG_CLEAR', serverId: selectedServer.id })}
               />
             )}

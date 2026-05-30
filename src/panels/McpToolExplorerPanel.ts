@@ -152,7 +152,7 @@ export class McpToolExplorerPanel {
       }
 
       case 'callTool': {
-        const result = await this._clientManager.callTool(message.serverId, message.toolName, message.args);
+        const result = await this._clientManager.callTool(message.serverId, message.toolName, message.args, message.requestId);
         this._post({
           type: 'toolResult',
           requestId: message.requestId,

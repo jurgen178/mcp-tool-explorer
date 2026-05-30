@@ -34,6 +34,18 @@ function isJsonObjectOrArray(text: string): boolean {
   try { const p = JSON.parse(t); return typeof p === 'object' && p !== null; } catch { return false; }
 }
 
+function parseJsonObjectOrArray(text: string): unknown | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+
+  try {
+    const parsed: unknown = JSON.parse(trimmed);
+    return typeof parsed === 'object' && parsed !== null ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function collectTextValues(raw: unknown, texts: string[], seen: WeakSet<object>) {
   if (typeof raw === 'string') {
     if (!isJsonObjectOrArray(raw)) {
@@ -107,20 +119,17 @@ function tryImageInterpreter(raw: unknown): ResultInterpretation | null {
 // is a valid JSON object or array.
 
 function tryJsonInterpreter(raw: unknown): ResultInterpretation | null {
+  if (typeof raw === 'string') {
+    const parsed = parseJsonObjectOrArray(raw);
+    return parsed ? { id: 'json', label: 'JSON', data: parsed } : null;
+  }
+
   if (!isMcpContentArray(raw) || raw.length !== 1) return null;
   const item = raw[0];
   if (item.type !== 'text' || typeof item.text !== 'string') return null;
 
-  const trimmed = item.text.trim();
-  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
-
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (typeof parsed !== 'object' || parsed === null) return null;
-    return { id: 'json', label: 'JSON', data: parsed };
-  } catch {
-    return null;
-  }
+  const parsed = parseJsonObjectOrArray(item.text);
+  return parsed ? { id: 'json', label: 'JSON', data: parsed } : null;
 }
 
 // HTML interpreter

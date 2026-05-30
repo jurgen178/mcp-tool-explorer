@@ -1,6 +1,8 @@
 import { URL } from 'url';
+import { AsyncLocalStorage } from 'async_hooks';
 import * as vscode from 'vscode';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import type { RequestOptions } from '@modelcontextprotocol/sdk/shared/protocol.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
@@ -13,20 +15,33 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import type { AuthAccountSelection, AuthAccountSelectionOverrides, McpEventEntry, McpServerConfig, McpServerDetails, McpTool, McpResource, McpPrompt } from '../types';
 import { createOAuthHandler, type OAuthState } from './McpOAuth';
-import { createLoggingFetch, type FetchLogEntry } from './LoggingFetch';
+import { createLoggingFetch, SSE_RESPONSE_BODY_PLACEHOLDER, type FetchLogEntry } from './LoggingFetch';
 import { clampLogText } from './logText';
 import { SENSITIVE_HEADER_NAMES } from './sensitiveHeaders';
 
+const MCP_REQUEST_TIMEOUT_MS = 60_000;
+const EMPTY_RESPONSE_BODY_PLACEHOLDER = '[empty response body]';
+
 export interface LogSection {
-  kind: 'request' | 'response' | 'raw-response' | 'request-headers' | 'response-headers' | 'error' | 'text';
+  sectionType: 'request' | 'response' | 'raw-response' | 'request-headers' | 'response-headers' | 'error' | 'text';
   content: string;
 }
 
 export interface ConnectionLogEntry {
+  id: string;
   timestamp: number;
   level: 'info' | 'warn' | 'error';
   message: string;
+  requestId?: string;
+  requestPhase?: 'started' | 'finished' | 'failed';
+  diagnosticType?: 'raw-response';
   detail?: string | LogSection[];
+}
+
+interface LogOptions {
+  diagnosticType?: ConnectionLogEntry['diagnosticType'];
+  requestId?: string;
+  requestPhase?: ConnectionLogEntry['requestPhase'];
 }
 
 interface ActiveConnection {
@@ -124,8 +139,11 @@ export class McpClientManager {
   /** Log listeners are tracked per server so concurrent connections stay isolated. */
   private readonly _logListeners = new Map<string, (entry: ConnectionLogEntry) => void>();
   private readonly _recentMcpResponses = new Map<string, FetchLogEntry>();
+  private readonly _requestCorrelation = new AsyncLocalStorage<string>();
   private _onEvent: ((serverId: string, event: McpEventEntry) => void) | undefined;
   private _eventCounter = 0;
+  private _logCounter = 0;
+  private _requestCorrelationCounter = 0;
   private readonly _recentEventGroups = new Map<string, RecentEventGroup>();
 
   constructor(version: string) {
@@ -141,8 +159,23 @@ export class McpClientManager {
     this._onEvent = listener;
   }
 
-  private _log(serverId: string, level: ConnectionLogEntry['level'], message: string, detail?: string | LogSection[]): void {
-    this._logListeners.get(serverId)?.({ timestamp: Date.now(), level, message, detail });
+  private _log(
+    serverId: string,
+    level: ConnectionLogEntry['level'],
+    message: string,
+    detail?: string | LogSection[],
+    options: LogOptions = {},
+  ): void {
+    this._logListeners.get(serverId)?.({
+      id: `log-${Date.now()}-${++this._logCounter}`,
+      timestamp: Date.now(),
+      level,
+      message,
+      detail,
+      diagnosticType: options.diagnosticType,
+      requestId: options.requestId,
+      requestPhase: options.requestPhase,
+    });
   }
 
   private _emitEvent(serverId: string, event: Omit<McpEventEntry, 'id' | 'timestamp'>): void {
@@ -248,8 +281,16 @@ export class McpClientManager {
     });
   }
 
-  private _buildProgressOptions(serverId: string, operationLabel: string) {
+  private _buildRequestOptions(options: RequestOptions = {}): RequestOptions {
     return {
+      timeout: MCP_REQUEST_TIMEOUT_MS,
+      ...options,
+    };
+  }
+
+  private _buildProgressOptions(serverId: string, operationLabel: string): RequestOptions {
+    return {
+      timeout: MCP_REQUEST_TIMEOUT_MS,
       resetTimeoutOnProgress: true,
       onprogress: (progress: {
         progress: number;
@@ -328,27 +369,25 @@ export class McpClientManager {
     );
   }
 
-  private _recentResponseKey(serverId: string, rpcMethod: string): string {
-    return `${serverId}\u0000${rpcMethod}`;
+  private _recentResponseKey(serverId: string, rpcMethod: string, requestCorrelationId?: string): string {
+    return `${serverId}\u0000${rpcMethod}\u0000${requestCorrelationId ?? ''}`;
   }
 
-  private _getRpcMethodFromRequest(request: unknown): string | undefined {
-    const record = this._asRecord(request);
-    const method = record?.method;
-    return typeof method === 'string' ? method : undefined;
+  private _deleteCorrelatedResponse(serverId: string, rpcMethod: string, requestCorrelationId: string): void {
+    this._recentMcpResponses.delete(this._recentResponseKey(serverId, rpcMethod, requestCorrelationId));
   }
 
   private async _getResponseBodyForDiagnostics(response: FetchLogEntry): Promise<string> {
-    if (response.responseBody && response.responseBody !== '[streaming SSE response]') {
+    if (response.responseBody && response.responseBody !== SSE_RESPONSE_BODY_PLACEHOLDER) {
       return response.responseBody;
     }
 
-    if (!response.responseBodyPromise) {
+    if (!response.rawResponseBodyForDiagnostics) {
       return '';
     }
 
     return await Promise.race([
-      response.responseBodyPromise,
+      response.rawResponseBodyForDiagnostics,
       new Promise<string>(resolve => setTimeout(() => resolve(''), 1000)),
     ]);
   }
@@ -388,13 +427,17 @@ export class McpClientManager {
   }
 
   private _getParsedResponseDiagnostics(rawResponseBody: string): { parsedJson?: string; jsonStatus: string } {
+    if (rawResponseBody.length === 0) {
+      return { jsonStatus: 'Raw response body is empty.' };
+    }
+
     const sseDataValues = this._extractSseDataValues(rawResponseBody);
     if (sseDataValues.length > 0) {
       const parsedSseDataJson = this._formatParsedJson(sseDataValues[sseDataValues.length - 1]);
       if (parsedSseDataJson) {
         return {
           parsedJson: parsedSseDataJson,
-          jsonStatus: 'Raw response is a Server-Sent Events (SSE) stream. Its data field contains valid JSON; the failure happened during MCP/schema validation.',
+          jsonStatus: 'Raw response is a Server-Sent Events (SSE) stream. The SSE data field contains valid JSON. The failure happened during MCP/schema validation.',
         };
       }
 
@@ -412,50 +455,156 @@ export class McpClientManager {
     return { jsonStatus: 'Raw response is not valid JSON.' };
   }
 
+  private _getRawResponseFormatDiagnostics(rawResponseBody: string): { parsedJson?: string; bodyStatus: string } {
+    if (rawResponseBody.length === 0) {
+      return { bodyStatus: 'Raw response body is empty.' };
+    }
+
+    const sseDataValues = this._extractSseDataValues(rawResponseBody);
+    if (sseDataValues.length > 0) {
+      const parsedSseDataJson = this._formatParsedJson(sseDataValues[sseDataValues.length - 1]);
+      if (parsedSseDataJson) {
+        return {
+          parsedJson: parsedSseDataJson,
+          bodyStatus: 'Raw response is a Server-Sent Events (SSE) stream. The SSE data field contains valid JSON.',
+        };
+      }
+
+      return { bodyStatus: 'Raw response is a Server-Sent Events (SSE) stream, but its data field is not valid JSON.' };
+    }
+
+    const parsedRawJson = this._formatParsedJson(rawResponseBody);
+    if (parsedRawJson) {
+      return {
+        parsedJson: parsedRawJson,
+        bodyStatus: 'Raw response is valid JSON.',
+      };
+    }
+
+    return { bodyStatus: 'Raw response is not valid JSON.' };
+  }
+
+  private _summarizeSdkValidationError(errorDetail: string): string | undefined {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(errorDetail);
+    } catch {
+      const firstLine = errorDetail.split(/\r?\n/).map(line => line.trim()).find(Boolean);
+      return firstLine ? clampLogText(firstLine, 240) : undefined;
+    }
+
+    const issue = Array.isArray(parsed)
+      ? parsed.find(item => typeof item === 'object' && item !== null)
+      : parsed;
+    const issueRecord = this._asRecord(issue);
+    if (!issueRecord) {
+      return undefined;
+    }
+
+    const path = Array.isArray(issueRecord.path) && issueRecord.path.length > 0
+      ? issueRecord.path.map(part => String(part)).join('.')
+      : undefined;
+    const expected = typeof issueRecord.expected === 'string' ? issueRecord.expected : undefined;
+    const received = typeof issueRecord.received === 'string' ? issueRecord.received : undefined;
+
+    if (expected && received) {
+      return path
+        ? `${path} expected ${expected}, received ${received}.`
+        : `Expected ${expected}, received ${received}.`;
+    }
+
+    return typeof issueRecord.message === 'string'
+      ? clampLogText(issueRecord.message, 240)
+      : undefined;
+  }
+
   private async _logInvalidMcpResponse(
     serverId: string,
     label: string,
-    request: unknown,
+    rpcMethod: string,
+    requestCorrelationId: string,
     requestContent: string,
     errorDetail: string,
     startedAt: number,
-  ): Promise<void> {
-    const rpcMethod = this._getRpcMethodFromRequest(request);
-    if (!rpcMethod) {
-      return;
-    }
-
-    const response = this._recentMcpResponses.get(this._recentResponseKey(serverId, rpcMethod));
-    if (!response || response.timestamp < startedAt || response.status === null || response.status >= 400 || !response.responseBody) {
-      return;
+    requestId?: string,
+  ): Promise<boolean> {
+    const response = this._recentMcpResponses.get(this._recentResponseKey(serverId, rpcMethod, requestCorrelationId))
+      ?? this._recentMcpResponses.get(this._recentResponseKey(serverId, rpcMethod));
+    if (!response || response.timestamp < startedAt || response.status === null || response.status >= 400) {
+      return false;
     }
 
     const rawResponseBody = await this._getResponseBodyForDiagnostics(response);
-    if (!rawResponseBody) {
-      return;
-    }
-
     const responseDiagnostics = this._getParsedResponseDiagnostics(rawResponseBody);
+    const errorSummary = this._summarizeSdkValidationError(errorDetail);
+    const summaryLines = [
+      `${label} failed after the server returned HTTP ${response.status} ${response.statusText}.`,
+      responseDiagnostics.jsonStatus,
+    ];
+    if (errorSummary) {
+      summaryLines.push(`SDK validation: ${errorSummary}`);
+    }
+    summaryLines.push('The MCP SDK rejected the response.');
+
     const sections: LogSection[] = [
       {
-        kind: 'text',
-        content: [
-          `${label} failed after the server returned HTTP ${response.status} ${response.statusText}.`,
-          responseDiagnostics.jsonStatus,
-          'The MCP SDK rejected the response. The raw server response is included below for copy/paste debugging.',
-        ].join('\n'),
+        sectionType: 'text',
+        content: summaryLines.join('\n'),
       },
-      { kind: 'request', content: requestContent },
-      { kind: 'raw-response', content: rawResponseBody },
+      { sectionType: 'request', content: requestContent },
+      { sectionType: 'raw-response', content: rawResponseBody || EMPTY_RESPONSE_BODY_PLACEHOLDER },
     ];
 
     if (responseDiagnostics.parsedJson) {
-      sections.push({ kind: 'response', content: responseDiagnostics.parsedJson });
+      sections.push({ sectionType: 'response', content: responseDiagnostics.parsedJson });
     }
 
-    sections.push({ kind: 'error', content: errorDetail });
+    sections.push({ sectionType: 'error', content: errorDetail });
 
-    this._log(serverId, 'error', `Raw MCP response rejected by SDK: ${rpcMethod}`, sections);
+    this._log(serverId, 'error', `Raw MCP response rejected by SDK: ${rpcMethod}`, sections, {
+      diagnosticType: 'raw-response',
+      requestId,
+      requestPhase: 'failed',
+    });
+    return true;
+  }
+
+  private async _getHttpErrorResponseSections(
+    serverId: string,
+    label: string,
+    rpcMethod: string,
+    requestCorrelationId: string,
+    requestContent: string,
+    errorDetail: string,
+    startedAt: number,
+  ): Promise<LogSection[] | undefined> {
+    const response = this._recentMcpResponses.get(this._recentResponseKey(serverId, rpcMethod, requestCorrelationId))
+      ?? this._recentMcpResponses.get(this._recentResponseKey(serverId, rpcMethod));
+    if (!response || response.timestamp < startedAt || response.status === null || response.status < 400) {
+      return undefined;
+    }
+
+    const rawResponseBody = await this._getResponseBodyForDiagnostics(response);
+    const responseDiagnostics = this._getRawResponseFormatDiagnostics(rawResponseBody);
+    const sections: LogSection[] = [
+      {
+        sectionType: 'text',
+        content: [
+          `${label} failed after the server returned HTTP ${response.status} ${response.statusText}.`,
+          responseDiagnostics.bodyStatus,
+          'The server returned an HTTP error response.',
+        ].join('\n'),
+      },
+      { sectionType: 'request', content: requestContent },
+      { sectionType: 'raw-response', content: rawResponseBody || EMPTY_RESPONSE_BODY_PLACEHOLDER },
+    ];
+
+    if (responseDiagnostics.parsedJson) {
+      sections.push({ sectionType: 'response', content: responseDiagnostics.parsedJson });
+    }
+
+    sections.push({ sectionType: 'error', content: errorDetail });
+    return sections;
   }
 
   private _getAuthAccountSelection(config: McpServerConfig): AuthAccountSelection {
@@ -469,40 +618,59 @@ export class McpClientManager {
   private async _measureRequest<T>(
     serverId: string,
     label: string,
+    rpcMethod: string,
     request: unknown,
     operation: () => Promise<T>,
     serializeResult: (result: T) => string,
     summarizeResult: (result: T) => string,
+    requestId?: string,
   ): Promise<T> {
     const startedAt = Date.now();
+    const requestCorrelationId = `${++this._requestCorrelationCounter}`;
     const requestContent = this._serializeLogValue(request);
-    this._log(serverId, 'info', `${label} started`, [{ kind: 'request', content: requestContent }]);
+    this._log(serverId, 'info', `${label} started`, [{ sectionType: 'request', content: requestContent }], { requestId, requestPhase: 'started' });
 
     try {
-      const result = await operation();
+      const result = await this._requestCorrelation.run(requestCorrelationId, operation);
       const responseContent = serializeResult(result);
       this._log(serverId, 'info', `${label} finished in ${Date.now() - startedAt}ms`, [
-        { kind: 'response', content: responseContent },
-        { kind: 'text', content: summarizeResult(result) },
-      ]);
+        { sectionType: 'text', content: summarizeResult(result) },
+        { sectionType: 'response', content: responseContent },
+      ], { requestId, requestPhase: 'finished' });
       return result;
     } catch (error: unknown) {
       const errorDetail = error instanceof Error
         ? clampLogText(error.message)
         : clampLogText(String(error));
 
-      await this._logInvalidMcpResponse(serverId, label, request, requestContent, errorDetail, startedAt);
+      const loggedInvalidMcpResponse = await this._logInvalidMcpResponse(serverId, label, rpcMethod, requestCorrelationId, requestContent, errorDetail, startedAt, requestId);
+      const httpErrorSections = loggedInvalidMcpResponse
+        ? undefined
+        : await this._getHttpErrorResponseSections(serverId, label, rpcMethod, requestCorrelationId, requestContent, errorDetail, startedAt);
 
-      this._log(serverId, 'error', `${label} failed after ${Date.now() - startedAt}ms`, [
-        { kind: 'request', content: requestContent },
-        { kind: 'error', content: errorDetail },
-      ]);
+      const errorMessage = httpErrorSections
+        ? `Raw MCP error response returned by server: ${rpcMethod}`
+        : `${label} failed after ${Date.now() - startedAt}ms`;
+
+      this._log(serverId, 'error', errorMessage, httpErrorSections ?? [
+          { sectionType: 'request', content: requestContent },
+          { sectionType: 'error', content: errorDetail },
+        ], {
+          diagnosticType: httpErrorSections ? 'raw-response' : undefined,
+          requestId,
+          requestPhase: 'failed',
+        });
       throw error;
+    } finally {
+      this._deleteCorrelatedResponse(serverId, rpcMethod, requestCorrelationId);
     }
   }
 
   private _logFetchEntry(serverId: string, entry: FetchLogEntry): void {
-    if (entry.rpcMethod && entry.responseBody) {
+    if (entry.rpcMethod) {
+      if (entry.requestCorrelationId) {
+        this._recentMcpResponses.set(this._recentResponseKey(serverId, entry.rpcMethod, entry.requestCorrelationId), entry);
+      }
       this._recentMcpResponses.set(this._recentResponseKey(serverId, entry.rpcMethod), entry);
     }
 
@@ -512,25 +680,25 @@ export class McpClientManager {
     const sections: LogSection[] = [];
 
     if (entry.requestBody) {
-      sections.push({ kind: 'request', content: entry.requestBody });
+      sections.push({ sectionType: 'request', content: entry.requestBody });
     }
     if (Object.keys(entry.requestHeaders).length > 0) {
       sections.push({
-        kind: 'request-headers',
+        sectionType: 'request-headers',
         content: Object.entries(entry.requestHeaders).map(([k, v]) => `  ${k}: ${v}`).join('\n'),
       });
     }
     if (entry.responseBody) {
-      sections.push({ kind: 'response', content: entry.responseBody });
+      sections.push({ sectionType: 'response', content: entry.responseBody });
     }
     if (entry.status !== null && Object.keys(entry.responseHeaders).length > 0) {
       sections.push({
-        kind: 'response-headers',
+        sectionType: 'response-headers',
         content: Object.entries(entry.responseHeaders).map(([k, v]) => `  ${k}: ${v}`).join('\n'),
       });
     }
     if (entry.error) {
-      sections.push({ kind: 'error', content: entry.error });
+      sections.push({ sectionType: 'error', content: entry.error });
     }
 
     const rpcLabel = entry.rpcMethod ? ` (${entry.rpcMethod})` : '';
@@ -614,8 +782,8 @@ export class McpClientManager {
       }
       const baseMsg = cleanErrorMessage(e instanceof Error ? e.message : String(e));
       const hint = getConnectionHint(e);
-      const sections: LogSection[] = [{ kind: 'error', content: baseMsg }];
-      if (hint) sections.push({ kind: 'text', content: `Diagnosis: ${hint}` });
+      const sections: LogSection[] = [{ sectionType: 'error', content: baseMsg }];
+      if (hint) sections.push({ sectionType: 'text', content: `Diagnosis: ${hint}` });
       this._log(config.id, 'error', `${config.type.toUpperCase()} transport failed`, sections);
 
       // Fall back from Streamable HTTP to SSE (per MCP spec recommendation)
@@ -655,8 +823,8 @@ export class McpClientManager {
           try { await sseClient.close(); } catch { /* ensure EventSource is stopped */ }
           const sseMsg = e2 instanceof Error ? e2.message : String(e2);
           const sseHint = getConnectionHint(e2);
-          const sseSections: LogSection[] = [{ kind: 'error', content: sseMsg }];
-          if (sseHint) sseSections.push({ kind: 'text', content: `Diagnosis: ${sseHint}` });
+          const sseSections: LogSection[] = [{ sectionType: 'error', content: sseMsg }];
+          if (sseHint) sseSections.push({ sectionType: 'text', content: `Diagnosis: ${sseHint}` });
           this._log(config.id, 'error', 'SSE transport also failed', sseSections);
           // SSE also failed — fall through to throw the original error
         }
@@ -695,9 +863,10 @@ export class McpClientManager {
     return this._measureRequest(
       serverId,
       'List tools',
+      'tools/list',
       { method: 'tools/list' },
       async () => {
-        const { tools } = await this._client(serverId).listTools();
+        const { tools } = await this._client(serverId).listTools(undefined, this._buildRequestOptions());
         return tools as McpTool[];
       },
       result => this._serializeLogValue(result),
@@ -705,10 +874,11 @@ export class McpClientManager {
     );
   }
 
-  async callTool(serverId: string, name: string, args: Record<string, unknown>): ReturnType<Client['callTool']> {
+  async callTool(serverId: string, name: string, args: Record<string, unknown>, requestId?: string): ReturnType<Client['callTool']> {
     return this._measureRequest(
       serverId,
       `Call tool ${name}`,
+      'tools/call',
       { name, arguments: args },
       () => this._client(serverId).callTool(
         { name, arguments: args },
@@ -720,6 +890,7 @@ export class McpClientManager {
         this._summarizeLogValue('Result content', result.content),
         `Tool reported error: ${result.isError === true ? 'yes' : 'no'}`,
       ].join('\n'),
+      requestId,
     );
   }
 
@@ -731,9 +902,10 @@ export class McpClientManager {
     return this._measureRequest(
       serverId,
       'List resources',
+      'resources/list',
       { method: 'resources/list' },
       async () => {
-        const { resources } = await this._client(serverId).listResources();
+        const { resources } = await this._client(serverId).listResources(undefined, this._buildRequestOptions());
         return resources as McpResource[];
       },
       result => this._serializeLogValue(result),
@@ -745,6 +917,7 @@ export class McpClientManager {
     return this._measureRequest(
       serverId,
       `Read resource ${uri}`,
+      'resources/read',
       { uri },
       () => this._client(serverId).readResource(
         { uri },
@@ -763,9 +936,10 @@ export class McpClientManager {
     return this._measureRequest(
       serverId,
       'List prompts',
+      'prompts/list',
       { method: 'prompts/list' },
       async () => {
-        const { prompts } = await this._client(serverId).listPrompts();
+        const { prompts } = await this._client(serverId).listPrompts(undefined, this._buildRequestOptions());
         return prompts as McpPrompt[];
       },
       result => this._serializeLogValue(result),
@@ -796,7 +970,7 @@ export class McpClientManager {
 
     if (!this._supportsCapability(serverId, 'completions')) {
       this._log(serverId, 'info', `Prompt argument completion not supported for ${promptName}.${argumentName}`, [{
-        kind: 'request',
+        sectionType: 'request',
         content: this._serializeLogValue({
           ref: { type: 'ref/prompt', name: promptName },
           argument: { name: argumentName, value },
@@ -809,6 +983,7 @@ export class McpClientManager {
     return this._measureRequest(
       serverId,
       `Complete prompt argument ${promptName}.${argumentName}`,
+      'completion/complete',
       {
         ref: { type: 'ref/prompt', name: promptName },
         argument: { name: argumentName, value },
@@ -819,7 +994,7 @@ export class McpClientManager {
           ref: { type: 'ref/prompt', name: promptName },
           argument: { name: argumentName, value },
           context,
-        });
+        }, this._buildRequestOptions());
 
         return result.completion.values;
       },
@@ -832,6 +1007,7 @@ export class McpClientManager {
     return this._measureRequest(
       serverId,
       `Get prompt ${name}`,
+      'prompts/get',
       { name, arguments: args },
       () => this._client(serverId).getPrompt(
         { name, arguments: args },
@@ -906,7 +1082,10 @@ export class McpClientManager {
       : undefined;
 
     // Wrap fetch: logging records every request, OAuth handles 401 token acquisition
-    const loggingFetch = createLoggingFetch((entry) => this._logFetchEntry(config.id, entry));
+    const loggingFetch = createLoggingFetch(
+      (entry) => this._logFetchEntry(config.id, entry),
+      () => this._requestCorrelation.getStore(),
+    );
     const authenticatedFetch = createOAuthHandler(loggingFetch, {
       accountSelection: this._getAuthAccountSelection(config),
       serverName: config.name,
