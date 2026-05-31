@@ -371,7 +371,7 @@ export class McpClientManager {
   }
 
   private _recentResponseKey(serverId: string, rpcMethod: string, requestCorrelationId?: string): string {
-    return `${serverId}\u0000${rpcMethod}\u0000${requestCorrelationId ?? ''}`;
+    return `${serverId}\u0000${rpcMethod}\u0000${requestCorrelationId}`;
   }
 
   private _deleteCorrelatedResponse(serverId: string, rpcMethod: string, requestCorrelationId: string): void {
@@ -529,8 +529,7 @@ export class McpClientManager {
     startedAt: number,
     requestId?: string,
   ): Promise<boolean> {
-    const response = this._recentMcpResponses.get(this._recentResponseKey(serverId, rpcMethod, requestCorrelationId))
-      ?? this._recentMcpResponses.get(this._recentResponseKey(serverId, rpcMethod));
+    const response = this._recentMcpResponses.get(this._recentResponseKey(serverId, rpcMethod, requestCorrelationId));
     if (!response || response.timestamp < startedAt || response.status === null || response.status >= 400) {
       return false;
     }
@@ -579,8 +578,7 @@ export class McpClientManager {
     errorDetail: string,
     startedAt: number,
   ): Promise<LogSection[] | undefined> {
-    const response = this._recentMcpResponses.get(this._recentResponseKey(serverId, rpcMethod, requestCorrelationId))
-      ?? this._recentMcpResponses.get(this._recentResponseKey(serverId, rpcMethod));
+    const response = this._recentMcpResponses.get(this._recentResponseKey(serverId, rpcMethod, requestCorrelationId));
     if (!response || response.timestamp < startedAt || response.status === null || response.status < 400) {
       return undefined;
     }
@@ -672,7 +670,6 @@ export class McpClientManager {
       if (entry.requestCorrelationId) {
         this._recentMcpResponses.set(this._recentResponseKey(serverId, entry.rpcMethod, entry.requestCorrelationId), entry);
       }
-      this._recentMcpResponses.set(this._recentResponseKey(serverId, entry.rpcMethod), entry);
     }
 
     const statusStr = entry.status !== null ? `${entry.status} ${entry.statusText}` : 'NETWORK ERROR';
@@ -717,6 +714,16 @@ export class McpClientManager {
     this._pendingConnects.delete(serverId);
   }
 
+  private _formatServerSource(config: McpServerConfig): string {
+    if (config.source === 'vscode-mcp.json') {
+      return '.vscode/mcp.json';
+    }
+    if (config.source === 'manual') {
+      return 'Manual';
+    }
+    return 'VS Code settings';
+  }
+
   async connect(config: McpServerConfig): Promise<void> {
     // Cancel any in-progress connect attempt for this server
     this.cancelConnect(config.id);
@@ -726,13 +733,23 @@ export class McpClientManager {
       await this.disconnect(config.id);
     }
 
-    this._log(config.id, 'info', `Connecting to "${config.name}"`, [
+    const connectionDetails = [
       `Type: ${config.type}`,
-      config.url ? `URL: ${config.url}` : `Command: ${config.command} ${(config.args ?? []).join(' ')}`,
-      config.headers ? `Headers: ${JSON.stringify(this._redactHeaders(config.headers))}` : '',
-      config.cwd ? `CWD: ${config.cwd}` : '',
-    ].filter(Boolean).join('\n'));
+      `Source: ${this._formatServerSource(config)}`,
+    ];
+    if (config.type === 'stdio') {
+      connectionDetails.push(`Command: ${config.command} ${(config.args ?? []).join(' ')}`);
+      if (config.cwd) {
+        connectionDetails.push(`CWD: ${config.cwd}`);
+      }
+    } else {
+      connectionDetails.push(`URL: ${config.url}`);
+      if (config.headers) {
+        connectionDetails.push(`Headers: ${JSON.stringify(this._redactHeaders(config.headers))}`);
+      }
+    }
 
+    this._log(config.id, 'info', `Connecting to "${config.name}"`, connectionDetails.join('\n'));
     const client = new Client(
       { name: 'mcp-tool-explorer', version: this._version },
       {
