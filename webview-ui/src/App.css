@@ -305,6 +305,9 @@ body {
 .tab.tab-global:hover { opacity: 1; }
 .tab.tab-global.active { opacity: 1; }
 
+.tab-content-mounted { display: contents; }
+.tab-content-hidden { display: none; }
+
 /* ── Panel split layout ─────────────────────────────────────────────────── */
 .panel { display: flex; flex: 1; overflow: hidden; min-height: 0; }
 

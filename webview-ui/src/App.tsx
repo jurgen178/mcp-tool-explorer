@@ -160,6 +160,7 @@ const SIDEBAR_KEY = 'sidebar-width';
 const SIDEBAR_DEFAULT = 220;
 const SIDEBAR_MIN = 150;
 const SIDEBAR_MAX = 500;
+const MAX_HISTORY_ENTRIES = 300;
 
 function getInitialSidebarWidth() {
   const stored = localStorage.getItem(SIDEBAR_KEY);
@@ -462,8 +463,15 @@ function reducer(state: AppState, action: Action): AppState {
       }
       return state;
 
-    case 'HISTORY_ADD':
-      return { ...state, history: [action.entry, ...state.history].slice(0, 300) };
+    case 'HISTORY_ADD': {
+      const history = [action.entry, ...state.history];
+      const trimmedHistory = history.slice(0, MAX_HISTORY_ENTRIES);
+      const removedRequestIds = new Set(history.slice(MAX_HISTORY_ENTRIES).map(entry => entry.id));
+      const requests = Object.fromEntries(
+        Object.entries(state.requests).filter(([id]) => !removedRequestIds.has(id)),
+      );
+      return { ...state, history: trimmedHistory, requests };
+    }
 
     case 'HISTORY_UPDATE': {
       const history = state.history.map(e =>
@@ -474,8 +482,15 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, history };
     }
 
-    case 'HISTORY_CLEAR':
-      return { ...state, history: state.history.filter(e => e.serverId !== action.serverId) };
+    case 'HISTORY_CLEAR': {
+      const removedRequestIds = new Set(
+        state.history.filter(e => e.serverId === action.serverId).map(e => e.id),
+      );
+      const requests = Object.fromEntries(
+        Object.entries(state.requests).filter(([id]) => !removedRequestIds.has(id)),
+      );
+      return { ...state, history: state.history.filter(e => e.serverId !== action.serverId), requests };
+    }
 
     case 'TESTS_LOADED':
       return { ...state, tests: action.tests, testVariables: action.variables };
@@ -993,7 +1008,7 @@ export default function App() {
             </div>
 
             {/* Tab content — tools/resources/prompts stay mounted to preserve selection */}
-            <div style={state.activeTab !== 'tools' ? { display: 'none' } : { display: 'contents' }}>
+            <div className={state.activeTab === 'tools' ? 'tab-content-mounted' : 'tab-content-hidden'}>
               <ToolsPanel
                 key={`tools-${selectedServer.id}`}
                 serverId={selectedServer.id}
@@ -1010,7 +1025,7 @@ export default function App() {
                 onOpenServerLog={() => handleOpenCapabilityLog('tools')}
               />
             </div>
-            <div style={state.activeTab !== 'resources' ? { display: 'none' } : { display: 'contents' }}>
+            <div className={state.activeTab === 'resources' ? 'tab-content-mounted' : 'tab-content-hidden'}>
               <ResourcesPanel
                 key={`resources-${selectedServer.id}`}
                 serverId={selectedServer.id}
@@ -1022,7 +1037,7 @@ export default function App() {
                 onOpenServerLog={() => handleOpenCapabilityLog('resources')}
               />
             </div>
-            <div style={state.activeTab !== 'prompts' ? { display: 'none' } : { display: 'contents' }}>
+            <div className={state.activeTab === 'prompts' ? 'tab-content-mounted' : 'tab-content-hidden'}>
               <PromptsPanel
                 key={`prompts-${selectedServer.id}`}
                 serverId={selectedServer.id}
@@ -1056,7 +1071,7 @@ export default function App() {
                 onClear={() => dispatch({ type: 'CONNECTION_LOG_CLEAR', serverId: selectedServer.id })}
               />
             )}
-            <div style={state.activeTab !== 'tests' ? { display: 'none' } : { display: 'contents' }}>
+            <div className={state.activeTab === 'tests' ? 'tab-content-mounted' : 'tab-content-hidden'}>
               <TestsPanel
                 tests={state.tests}
                 servers={state.servers}

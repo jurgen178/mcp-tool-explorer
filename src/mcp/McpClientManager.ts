@@ -111,8 +111,9 @@ function getConnectionHint(e: unknown): string | undefined {
 
   // StreamableHTTPError / SSEClientTransport: HTTP error posting to endpoint
   if (msg.includes('error posting to endpoint')) {
-    const httpStatus = typeof (root as { code?: unknown }).code === 'number'
-      ? (root as { code: number }).code
+    const rootWithCode = root as Error & { code?: unknown };
+    const httpStatus = typeof rootWithCode.code === 'number'
+      ? rootWithCode.code
       : null;
     if (httpStatus === 404) return 'Endpoint not found (HTTP 404) — check the URL path (e.g. add /mcp or verify the route).';
     if (httpStatus === 401 || httpStatus === 403) return 'Authentication error (HTTP ' + httpStatus + ') — check credentials or authorization headers.';

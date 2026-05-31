@@ -217,8 +217,11 @@ export class McpToolExplorerPanel {
       case 'updateServer': {
         const updated = await this._configDiscovery.updateManualServer(message.serverId, message.config);
         if (updated) {
+          const wasConnected = this._clientManager.isConnected(message.serverId);
+          if (wasConnected) await this._clientManager.disconnect(message.serverId);
           this._servers.set(updated.id, updated);
           this._post({ type: 'serverUpdated', server: updated });
+          if (wasConnected) this._post({ type: 'disconnected', serverId: message.serverId });
         }
         break;
       }
