@@ -24,6 +24,12 @@ interface TokenAcquisitionResult {
   prompted: boolean;
 }
 
+interface OAuthResourceMetadata {
+  authorization_servers?: string[];
+  scopes_supported?: string[];
+  resource?: string;
+}
+
 export function createOAuthHandler(
   baseFetch: typeof globalThis.fetch = globalThis.fetch,
   options: OAuthOptions = {},
@@ -107,60 +113,127 @@ async function discoverAndAcquireToken(
     return { prompted };
   }
 
+  const metadataFallback = getResourceMetadataFallback(resourceMetadataUrl);
+
   try {
     const rmResp = await metadataFetch(resourceMetadataUrl, { signal: AbortSignal.timeout(5000) });
-    if (!rmResp.ok) return { prompted };
+    if (!rmResp.ok && !metadataFallback) return { prompted };
 
-    const meta = await rmResp.json() as {
-      authorization_servers?: string[];
-      scopes_supported?: string[];
-      resource?: string;
-    };
-
-    const scopes = meta.scopes_supported ?? [];
-    const resourceDefaultScope = typeof meta.resource === 'string'
-      ? toDefaultScope(meta.resource)
-      : undefined;
-    // Keep only app-specific scopes (e.g. "GUID/.default"), skip generic OIDC scopes
-    const appScopes = scopes.filter(
-      (s: string) => s.includes('/') && !['openid', 'profile', 'offline_access', 'email'].includes(s),
-    );
-    let tokenScopes = scopes;
-    if (appScopes.length > 0) {
-      tokenScopes = appScopes;
-    } else if (scopes.length === 0 && resourceDefaultScope) {
-      tokenScopes = [resourceDefaultScope];
-    }
-    if (tokenScopes.length === 0) return { prompted };
-
-    // Derive the VS Code auth provider from the authorization_servers metadata.
-    // If no known provider is advertised, skip auth and return the original 401.
-    const authServer = meta.authorization_servers?.[0] ?? '';
-    const providerId = resolveProviderId(authServer);
-    if (!providerId) return { prompted }; // unknown provider — cannot acquire token
-
-    let session: vscode.AuthenticationSession | undefined;
-    if (accountSelection === 'prompt') {
-      prompted = true;
-      session = await vscode.authentication.getSession(providerId, tokenScopes, {
-        createIfNone: {
-          detail: serverName
-            ? `Choose the account to use for MCP server "${serverName}".`
-            : 'Choose the account to use for this MCP server.',
-        },
-        clearSessionPreference: true,
-      });
-    } else {
-      session = await vscode.authentication.getSession(providerId, tokenScopes, { silent: true });
-    }
-
-    if (!session && accountSelection === 'auto') {
-      session = await vscode.authentication.getSession(providerId, tokenScopes, { createIfNone: true });
-    }
-    return { token: session?.accessToken, prompted };
+    const meta = rmResp.ok
+      ? await rmResp.json() as OAuthResourceMetadata
+      : metadataFallback!;
+    return acquireTokenFromMetadata(meta, accountSelection, serverName);
   } catch {
+    if (metadataFallback) {
+      return acquireTokenFromMetadata(metadataFallback, accountSelection, serverName);
+    }
     return { prompted };
   }
+}
+
+async function acquireTokenFromMetadata(
+  meta: OAuthResourceMetadata,
+  accountSelection: AuthAccountSelection,
+  serverName: string | undefined,
+): Promise<TokenAcquisitionResult> {
+  let prompted = false;
+  const scopes = meta.scopes_supported ?? [];
+  const resourceDefaultScope = typeof meta.resource === 'string'
+    ? toDefaultScope(meta.resource)
+    : undefined;
+  // Keep only app-specific scopes (e.g. "GUID/.default"), skip generic OIDC scopes
+  const appScopes = scopes.filter(
+    (s: string) => s.includes('/') && !['openid', 'profile', 'offline_access', 'email'].includes(s),
+  );
+  let tokenScopes = scopes;
+  if (appScopes.length > 0) {
+    tokenScopes = appScopes;
+  } else if (scopes.length === 0 && resourceDefaultScope) {
+    tokenScopes = [resourceDefaultScope];
+  }
+  if (tokenScopes.length === 0) return { prompted };
+
+  // Derive the VS Code auth provider from the authorization_servers metadata.
+  // If no known provider is advertised, skip auth and return the original 401.
+  const authServer = meta.authorization_servers?.[0] ?? '';
+  const providerId = resolveProviderId(authServer);
+  if (!providerId) return { prompted }; // unknown provider — cannot acquire token
+
+  let session: vscode.AuthenticationSession | undefined;
+  if (accountSelection === 'prompt') {
+    prompted = true;
+    session = await vscode.authentication.getSession(providerId, tokenScopes, {
+      createIfNone: {
+        detail: serverName
+          ? `Choose the account to use for MCP server "${serverName}".`
+          : 'Choose the account to use for this MCP server.',
+      },
+      clearSessionPreference: true,
+    });
+  } else {
+    session = await vscode.authentication.getSession(providerId, tokenScopes, { silent: true });
+  }
+
+  if (!session && accountSelection === 'auto') {
+    session = await vscode.authentication.getSession(providerId, tokenScopes, { createIfNone: true });
+  }
+  return { token: session?.accessToken, prompted };
+}
+
+function getResourceMetadataFallback(resourceMetadataUrl: string): OAuthResourceMetadata | undefined {
+  let metadataUrl: URL;
+  try {
+    metadataUrl = new URL(resourceMetadataUrl);
+  } catch {
+    return undefined;
+  }
+
+  const resource = getResourceFromMetadataUrl(metadataUrl);
+  if (!resource) {
+    return undefined;
+  }
+
+  const authorizationServer = getMicrosoftAuthorizationServer(resource);
+  if (!authorizationServer) {
+    return undefined;
+  }
+
+  return {
+    authorization_servers: [authorizationServer],
+    resource,
+  };
+}
+
+function getResourceFromMetadataUrl(metadataUrl: URL): string | undefined {
+  const marker = '/.well-known/oauth-protected-resource';
+  const markerIndex = metadataUrl.pathname.indexOf(marker);
+  if (markerIndex < 0) {
+    return undefined;
+  }
+
+  const resourcePath = metadataUrl.pathname.slice(0, markerIndex)
+    + metadataUrl.pathname.slice(markerIndex + marker.length);
+  const resourceUrl = new URL(metadataUrl.toString());
+  resourceUrl.pathname = resourcePath || '/';
+  resourceUrl.search = '';
+  resourceUrl.hash = '';
+  return resourceUrl.toString().replace(/\/$/, '');
+}
+
+function getMicrosoftAuthorizationServer(resource: string): string | undefined {
+  let resourceUrl: URL;
+  try {
+    resourceUrl = new URL(resource);
+  } catch {
+    return undefined;
+  }
+
+  const tenantMatch = resourceUrl.pathname.match(/\/tenants\/([0-9a-f-]{36})(?:\/|$)/i);
+  if (!tenantMatch) {
+    return undefined;
+  }
+
+  return `https://login.microsoftonline.com/${tenantMatch[1]}/v2.0`;
 }
 
 function toDefaultScope(resource: string): string | undefined {
