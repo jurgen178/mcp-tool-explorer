@@ -1112,6 +1112,7 @@ export class McpClientManager {
       accountSelection: this._getAuthAccountSelection(config),
       serverName: config.name,
       state: oauthState,
+      onEvent: (message, detail) => this._log(config.id, 'info', message, detail),
     });
 
     if (config.type === 'sse') {
