@@ -18,6 +18,7 @@ interface OAuthOptions {
 export interface OAuthState {
   promptCancelled?: boolean;
   authFailed?: boolean;
+  accessToken?: string;
 }
 
 interface TokenAcquisitionResult {
@@ -36,7 +37,7 @@ export function createOAuthHandler(
   options: OAuthOptions = {},
 ): typeof globalThis.fetch {
   /** Cached access token — reused across requests until a fresh 401 arrives. */
-  let cachedToken: string | undefined;
+  let cachedToken = options.state?.accessToken;
   const accountSelection = options.accountSelection ?? 'auto';
 
   if (accountSelection === 'disabled') {
@@ -44,6 +45,8 @@ export function createOAuthHandler(
   }
 
   const oauthFetch: typeof globalThis.fetch = async (input, init?) => {
+    cachedToken ??= options.state?.accessToken;
+
     // Inject cached token if available
     if (cachedToken) {
       const headers = new Headers(init?.headers);
@@ -68,6 +71,9 @@ export function createOAuthHandler(
       const token = result.token;
       if (token) {
         cachedToken = token;
+        if (options.state) {
+          options.state.accessToken = token;
+        }
         const retryHeaders = new Headers(init?.headers);
         retryHeaders.set('Authorization', `Bearer ${token}`);
         return baseFetch(input, { ...init, headers: retryHeaders });
