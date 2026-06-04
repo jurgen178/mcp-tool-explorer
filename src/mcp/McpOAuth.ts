@@ -179,54 +179,27 @@ async function acquireTokenFromMetadata(
     if (accountSelection === 'prompt') {
       prompted = true;
       const session = await vscode.authentication.getSession(providerId, authRequest, {
-        createIfNone: { detail },
+        forceNewSession: { detail },
         clearSessionPreference: true,
       });
       return { token: session.accessToken, prompted };
     }
 
     const silentSession = await vscode.authentication.getSession(providerId, authRequest, { silent: true });
-    if (silentSession) {
-      return { token: silentSession.accessToken, prompted };
-    }
-
-    const session = await vscode.authentication.getSession(providerId, authRequest, {
-      createIfNone: { detail },
-    });
-    return { token: session.accessToken, prompted };
+    return { token: silentSession?.accessToken, prompted };
   }
 
   if (accountSelection === 'prompt') {
     prompted = true;
-    const accountSession = await vscode.authentication.getSession(providerId, [], {
+    const session = await vscode.authentication.getSession(providerId, tokenScopes, {
       forceNewSession: { detail },
       clearSessionPreference: true,
-    });
-    const session = await vscode.authentication.getSession(providerId, tokenScopes, {
-      account: accountSession.account,
-      createIfNone: { detail },
     });
     return { token: session.accessToken, prompted };
   }
 
-  const accountSession = await vscode.authentication.getSession(providerId, [], { silent: true });
-  if (!accountSession) {
-    return { prompted };
-  }
-
-  const silentSession = await vscode.authentication.getSession(providerId, tokenScopes, {
-    account: accountSession.account,
-    silent: true,
-  });
-  if (silentSession) {
-    return { token: silentSession.accessToken, prompted };
-  }
-
-  const session = await vscode.authentication.getSession(providerId, tokenScopes, {
-    account: accountSession.account,
-    createIfNone: { detail },
-  });
-  return { token: session.accessToken, prompted };
+  const silentSession = await vscode.authentication.getSession(providerId, tokenScopes, { silent: true });
+  return { token: silentSession?.accessToken, prompted };
 }
 
 function isClaimsChallenge(
