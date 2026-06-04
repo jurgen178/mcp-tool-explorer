@@ -138,13 +138,14 @@ async function discoverAndAcquireToken(
   meta ??= metadataFallback;
   if (!meta) return { prompted };
 
-  return acquireTokenFromMetadata(meta, accountSelection, serverName);
+  return acquireTokenFromMetadata(meta, accountSelection, serverName, wwwAuth);
 }
 
 async function acquireTokenFromMetadata(
   meta: OAuthResourceMetadata,
   accountSelection: AuthAccountSelection,
   serverName: string | undefined,
+  wwwAuthenticate: string | undefined,
 ): Promise<TokenAcquisitionResult> {
   let prompted = false;
   const scopes = meta.scopes_supported ?? [];
@@ -169,31 +170,72 @@ async function acquireTokenFromMetadata(
   const providerId = resolveProviderId(authServer);
   if (!providerId) return { prompted }; // unknown provider — cannot acquire token
 
-  let session: vscode.AuthenticationSession | undefined;
-  if (accountSelection === 'prompt') {
-    prompted = true;
-    session = await vscode.authentication.getSession(providerId, tokenScopes, {
-      forceNewSession: {
-        detail: serverName
-          ? `Choose the account to use for MCP server "${serverName}".`
-          : 'Choose the account to use for this MCP server.',
-      },
-      clearSessionPreference: true,
-    });
-  } else {
-    session = await vscode.authentication.getSession(providerId, tokenScopes, { silent: true });
-    if (!session) {
-      session = await vscode.authentication.getSession(providerId, tokenScopes, {
-        createIfNone: {
-          detail: serverName
-            ? `Authorize MCP server "${serverName}" with your current account.`
-            : 'Authorize this MCP server with your current account.',
-        },
+  const detail = serverName
+    ? `Authorize MCP server "${serverName}".`
+    : 'Authorize this MCP server.';
+
+  if (isClaimsChallenge(providerId, wwwAuthenticate)) {
+    const authRequest = { wwwAuthenticate, fallbackScopes: tokenScopes };
+    if (accountSelection === 'prompt') {
+      prompted = true;
+      const session = await vscode.authentication.getSession(providerId, authRequest, {
+        createIfNone: { detail },
+        clearSessionPreference: true,
       });
+      return { token: session.accessToken, prompted };
     }
+
+    const silentSession = await vscode.authentication.getSession(providerId, authRequest, { silent: true });
+    if (silentSession) {
+      return { token: silentSession.accessToken, prompted };
+    }
+
+    const session = await vscode.authentication.getSession(providerId, authRequest, {
+      createIfNone: { detail },
+    });
+    return { token: session.accessToken, prompted };
   }
 
-  return { token: session?.accessToken, prompted };
+  if (accountSelection === 'prompt') {
+    prompted = true;
+    const accountSession = await vscode.authentication.getSession(providerId, [], {
+      createIfNone: { detail },
+      clearSessionPreference: true,
+    });
+    const session = await vscode.authentication.getSession(providerId, tokenScopes, {
+      account: accountSession.account,
+      createIfNone: { detail },
+    });
+    return { token: session.accessToken, prompted };
+  }
+
+  const accountSession = await vscode.authentication.getSession(providerId, [], { silent: true });
+  if (!accountSession) {
+    return { prompted };
+  }
+
+  const silentSession = await vscode.authentication.getSession(providerId, tokenScopes, {
+    account: accountSession.account,
+    silent: true,
+  });
+  if (silentSession) {
+    return { token: silentSession.accessToken, prompted };
+  }
+
+  const session = await vscode.authentication.getSession(providerId, tokenScopes, {
+    account: accountSession.account,
+    createIfNone: { detail },
+  });
+  return { token: session.accessToken, prompted };
+}
+
+function isClaimsChallenge(
+  providerId: string,
+  wwwAuthenticate: string | undefined,
+): wwwAuthenticate is string {
+  return providerId === 'microsoft'
+    && typeof wwwAuthenticate === 'string'
+    && /(?:^|[\s,])claims=/i.test(wwwAuthenticate);
 }
 
 function getResourceMetadataFallback(resourceMetadataUrl: string): OAuthResourceMetadata | undefined {
