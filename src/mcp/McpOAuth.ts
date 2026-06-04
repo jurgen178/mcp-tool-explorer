@@ -13,7 +13,6 @@ interface OAuthOptions {
   accountSelection?: AuthAccountSelection;
   serverName?: string;
   state?: OAuthState;
-  onEvent?: (message: string, detail?: string) => void;
 }
 
 export interface OAuthState {
@@ -58,7 +57,7 @@ export function createOAuthHandler(
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
       let result: TokenAcquisitionResult;
       try {
-        result = await discoverAndAcquireToken(response, url, accountSelection, options.serverName, baseFetch, options.onEvent);
+        result = await discoverAndAcquireToken(response, url, accountSelection, options.serverName, baseFetch);
       } catch (error) {
         if (options.state) {
           options.state.authFailed = true;
@@ -109,7 +108,6 @@ async function discoverAndAcquireToken(
   accountSelection: AuthAccountSelection,
   serverName: string | undefined,
   metadataFetch: typeof globalThis.fetch,
-  onEvent: OAuthOptions['onEvent'],
 ): Promise<TokenAcquisitionResult> {
   let prompted = false;
   const wwwAuth = response.headers.get('www-authenticate') ?? '';
@@ -140,7 +138,7 @@ async function discoverAndAcquireToken(
   meta ??= metadataFallback;
   if (!meta) return { prompted };
 
-  return acquireTokenFromMetadata(meta, accountSelection, serverName, wwwAuth, onEvent);
+  return acquireTokenFromMetadata(meta, accountSelection, serverName, wwwAuth);
 }
 
 async function acquireTokenFromMetadata(
@@ -148,7 +146,6 @@ async function acquireTokenFromMetadata(
   accountSelection: AuthAccountSelection,
   serverName: string | undefined,
   wwwAuthenticate: string | undefined,
-  onEvent: OAuthOptions['onEvent'],
 ): Promise<TokenAcquisitionResult> {
   let prompted = false;
   const scopes = meta.scopes_supported ?? [];
@@ -177,157 +174,32 @@ async function acquireTokenFromMetadata(
     ? `Authorize MCP server "${serverName}".`
     : 'Authorize this MCP server.';
 
-  onEvent?.('OAuth token request started', [
-    `Mode: ${accountSelection}`,
-    `Provider: ${providerId}`,
-    tokenScopeSummary(tokenScopes),
-    meta.resource ? `Resource: ${meta.resource}` : undefined,
-    authServer ? `Authorization server: ${authServer}` : undefined,
-  ].filter(Boolean).join('\n'));
-
-  try {
-    if (isClaimsChallenge(providerId, wwwAuthenticate)) {
-      const authRequest = { wwwAuthenticate, fallbackScopes: tokenScopes };
-      if (accountSelection === 'prompt') {
-        prompted = true;
-        const session = await vscode.authentication.getSession(providerId, authRequest, {
-          forceNewSession: { detail },
-          clearSessionPreference: true,
-        });
-        logOAuthSession(onEvent, session, 'OAuth token acquired after account selection');
-        return { token: session.accessToken, prompted };
-      }
-
-      const silentSession = await vscode.authentication.getSession(providerId, authRequest, { silent: true });
-      if (!silentSession) {
-        onEvent?.('OAuth token not available silently', tokenScopeSummary(tokenScopes));
-      } else {
-        logOAuthSession(onEvent, silentSession, 'OAuth token acquired silently');
-      }
-      return { token: silentSession?.accessToken, prompted };
-    }
-
+  if (isClaimsChallenge(providerId, wwwAuthenticate)) {
+    const authRequest = { wwwAuthenticate, fallbackScopes: tokenScopes };
     if (accountSelection === 'prompt') {
       prompted = true;
-      const session = await vscode.authentication.getSession(providerId, tokenScopes, {
+      const session = await vscode.authentication.getSession(providerId, authRequest, {
         forceNewSession: { detail },
         clearSessionPreference: true,
       });
-      logOAuthSession(onEvent, session, 'OAuth token acquired after account selection');
       return { token: session.accessToken, prompted };
     }
 
-    const silentSession = await vscode.authentication.getSession(providerId, tokenScopes, { silent: true });
-    if (!silentSession) {
-      onEvent?.('OAuth token not available silently', tokenScopeSummary(tokenScopes));
-    } else {
-      logOAuthSession(onEvent, silentSession, 'OAuth token acquired silently');
-    }
+    const silentSession = await vscode.authentication.getSession(providerId, authRequest, { silent: true });
     return { token: silentSession?.accessToken, prompted };
-  } catch (error) {
-    onEvent?.('OAuth token request failed', formatAuthError(error));
-    throw error;
-  }
-}
-
-function logOAuthSession(
-  onEvent: OAuthOptions['onEvent'],
-  session: vscode.AuthenticationSession,
-  message: string,
-): void {
-  const claims = decodeJwtPayload(session.accessToken);
-  const lines = [
-    `Account: ${session.account.label}`,
-    `Account ID: ${session.account.id}`,
-    `Scopes: ${session.scopes.join(' ')}`,
-  ];
-  if (claims) {
-    if (typeof claims.tid === 'string') lines.push(`Tenant: ${claims.tid}`);
-    if (typeof claims.aud === 'string') lines.push(`Audience: ${claims.aud}`);
-    if (typeof claims.upn === 'string') lines.push(`UPN: ${claims.upn}`);
-    if (typeof claims.preferred_username === 'string') lines.push(`Username: ${claims.preferred_username}`);
-  }
-  onEvent?.(message, lines.join('\n'));
-}
-
-function decodeJwtPayload(token: string): Record<string, unknown> | undefined {
-  const payload = token.split('.')[1];
-  if (!payload) {
-    return undefined;
   }
 
-  try {
-    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
-    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8')) as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
-}
-
-function tokenScopeSummary(tokenScopes: string[]): string {
-  return `Scopes: ${tokenScopes.join(' ')}`;
-}
-
-function formatAuthError(error: unknown): string {
-  const lines: string[] = [];
-  if (error instanceof Error) {
-    lines.push(`${error.name}: ${error.message}`);
-  } else {
-    lines.push(String(error));
+  if (accountSelection === 'prompt') {
+    prompted = true;
+    const session = await vscode.authentication.getSession(providerId, tokenScopes, {
+      forceNewSession: { detail },
+      clearSessionPreference: true,
+    });
+    return { token: session.accessToken, prompted };
   }
 
-  appendErrorProperties(lines, error);
-
-  return lines.join('\n');
-}
-
-function appendErrorProperties(lines: string[], error: unknown, prefix = ''): void {
-  if (typeof error !== 'object' || error === null) {
-    return;
-  }
-
-  const record = error as Record<string, unknown>;
-  const keys = new Set([
-    ...Object.keys(record),
-    ...Object.getOwnPropertyNames(error),
-    'code',
-    'platformBrokerError',
-    'error',
-    'errorCode',
-    'subError',
-    'correlationId',
-    'traceId',
-    'timestamp',
-    'cause',
-  ]);
-
-  for (const key of keys) {
-    if (key === 'stack' || key === 'message' || key === 'name') {
-      continue;
-    }
-    const value = record[key];
-    if (value !== undefined) {
-      lines.push(`${prefix}${key}: ${formatLogValue(value)}`);
-    }
-  }
-
-  const cause = record.cause;
-  if (cause && cause !== error) {
-    appendErrorProperties(lines, cause, 'cause.');
-  }
-}
-
-function formatLogValue(value: unknown): string {
-  if (typeof value === 'string') {
-    return value;
-  }
-
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
+  const silentSession = await vscode.authentication.getSession(providerId, tokenScopes, { silent: true });
+  return { token: silentSession?.accessToken, prompted };
 }
 
 function isClaimsChallenge(
