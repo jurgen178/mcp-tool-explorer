@@ -277,16 +277,45 @@ function formatAuthError(error: unknown): string {
     lines.push(String(error));
   }
 
-  if (typeof error === 'object' && error !== null) {
-    for (const key of ['code', 'platformBrokerError', 'error', 'errorCode'] as const) {
-      const value = (error as Record<string, unknown>)[key];
-      if (value !== undefined) {
-        lines.push(`${key}: ${formatLogValue(value)}`);
-      }
+  appendErrorProperties(lines, error);
+
+  return lines.join('\n');
+}
+
+function appendErrorProperties(lines: string[], error: unknown, prefix = ''): void {
+  if (typeof error !== 'object' || error === null) {
+    return;
+  }
+
+  const record = error as Record<string, unknown>;
+  const keys = new Set([
+    ...Object.keys(record),
+    ...Object.getOwnPropertyNames(error),
+    'code',
+    'platformBrokerError',
+    'error',
+    'errorCode',
+    'subError',
+    'correlationId',
+    'traceId',
+    'timestamp',
+    'cause',
+  ]);
+
+  for (const key of keys) {
+    if (key === 'stack' || key === 'message' || key === 'name') {
+      continue;
+    }
+    const value = record[key];
+    if (value !== undefined) {
+      lines.push(`${prefix}${key}: ${formatLogValue(value)}`);
     }
   }
 
-  return lines.join('\n');
+  const cause = record.cause;
+  if (cause && cause !== error) {
+    appendErrorProperties(lines, cause, 'cause.');
+  }
 }
 
 function formatLogValue(value: unknown): string {
