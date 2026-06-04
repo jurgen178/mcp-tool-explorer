@@ -806,7 +806,7 @@ export class McpClientManager {
       this._log(config.id, 'error', `${config.type.toUpperCase()} transport failed`, sections);
 
       // Fall back from Streamable HTTP to SSE (per MCP spec recommendation)
-      if (config.type === 'http' && config.url && !oauthState.authFailed) {
+      if (config.type === 'http' && config.url && !oauthState.authFailed && !oauthState.promptCancelled) {
         try { await client.close(); } catch { /* ignore cleanup errors */ }
 
         this._log(config.id, 'info', 'Falling back to SSE transport');

@@ -172,22 +172,43 @@ async function acquireTokenFromMetadata(
   let session: vscode.AuthenticationSession | undefined;
   if (accountSelection === 'prompt') {
     prompted = true;
-    session = await vscode.authentication.getSession(providerId, tokenScopes, {
-      createIfNone: {
-        detail: serverName
-          ? `Choose the account to use for MCP server "${serverName}".`
-          : 'Choose the account to use for this MCP server.',
-      },
-      clearSessionPreference: true,
-    });
+    session = await getSessionWithAccountSelection(providerId, tokenScopes, serverName);
   } else {
     session = await vscode.authentication.getSession(providerId, tokenScopes, { silent: true });
   }
 
-  if (!session && accountSelection === 'auto') {
-    session = await vscode.authentication.getSession(providerId, tokenScopes, { createIfNone: true });
-  }
   return { token: session?.accessToken, prompted };
+}
+
+async function getSessionWithAccountSelection(
+  providerId: string,
+  tokenScopes: string[],
+  serverName: string | undefined,
+): Promise<vscode.AuthenticationSession | undefined> {
+  const accounts = await vscode.authentication.getAccounts(providerId);
+  const account = accounts.length > 1
+    ? await vscode.window.showQuickPick(
+      accounts.map(item => ({ label: item.label, description: item.id, account: item })),
+      {
+        title: serverName ? `Choose account for ${serverName}` : 'Choose account',
+        placeHolder: 'Select the account to use for this MCP server',
+      },
+    )
+    : accounts[0] ? { account: accounts[0] } : undefined;
+
+  if (!account && accounts.length > 0) {
+    return undefined;
+  }
+
+  return vscode.authentication.getSession(providerId, tokenScopes, {
+    account: account?.account,
+    createIfNone: {
+      detail: serverName
+        ? `Sign in or grant access for MCP server "${serverName}".`
+        : 'Sign in or grant access for this MCP server.',
+    },
+    clearSessionPreference: true,
+  });
 }
 
 function getResourceMetadataFallback(resourceMetadataUrl: string): OAuthResourceMetadata | undefined {
