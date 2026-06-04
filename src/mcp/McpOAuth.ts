@@ -376,7 +376,17 @@ function getResourceFromMetadataUrl(metadataUrl: URL): string | undefined {
   resourceUrl.pathname = resourcePath || '/';
   resourceUrl.search = '';
   resourceUrl.hash = '';
+  if (resourceUrl.protocol === 'http:' && !isLoopbackHost(resourceUrl.hostname)) {
+    resourceUrl.protocol = 'https:';
+  }
   return resourceUrl.toString().replace(/\/$/, '');
+}
+
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === 'localhost'
+    || hostname === '127.0.0.1'
+    || hostname === '::1'
+    || hostname.endsWith('.localhost');
 }
 
 function getMicrosoftAuthorizationServer(resource: string): string | undefined {
