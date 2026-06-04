@@ -177,11 +177,39 @@ async function acquireTokenFromMetadata(
     ? `Authorize MCP server "${serverName}".`
     : 'Authorize this MCP server.';
 
-  if (isClaimsChallenge(providerId, wwwAuthenticate)) {
-    const authRequest = { wwwAuthenticate, fallbackScopes: tokenScopes };
+  onEvent?.('OAuth token request started', [
+    `Mode: ${accountSelection}`,
+    `Provider: ${providerId}`,
+    tokenScopeSummary(tokenScopes),
+    meta.resource ? `Resource: ${meta.resource}` : undefined,
+    authServer ? `Authorization server: ${authServer}` : undefined,
+  ].filter(Boolean).join('\n'));
+
+  try {
+    if (isClaimsChallenge(providerId, wwwAuthenticate)) {
+      const authRequest = { wwwAuthenticate, fallbackScopes: tokenScopes };
+      if (accountSelection === 'prompt') {
+        prompted = true;
+        const session = await vscode.authentication.getSession(providerId, authRequest, {
+          forceNewSession: { detail },
+          clearSessionPreference: true,
+        });
+        logOAuthSession(onEvent, session, 'OAuth token acquired after account selection');
+        return { token: session.accessToken, prompted };
+      }
+
+      const silentSession = await vscode.authentication.getSession(providerId, authRequest, { silent: true });
+      if (!silentSession) {
+        onEvent?.('OAuth token not available silently', tokenScopeSummary(tokenScopes));
+      } else {
+        logOAuthSession(onEvent, silentSession, 'OAuth token acquired silently');
+      }
+      return { token: silentSession?.accessToken, prompted };
+    }
+
     if (accountSelection === 'prompt') {
       prompted = true;
-      const session = await vscode.authentication.getSession(providerId, authRequest, {
+      const session = await vscode.authentication.getSession(providerId, tokenScopes, {
         forceNewSession: { detail },
         clearSessionPreference: true,
       });
@@ -189,32 +217,17 @@ async function acquireTokenFromMetadata(
       return { token: session.accessToken, prompted };
     }
 
-    const silentSession = await vscode.authentication.getSession(providerId, authRequest, { silent: true });
+    const silentSession = await vscode.authentication.getSession(providerId, tokenScopes, { silent: true });
     if (!silentSession) {
       onEvent?.('OAuth token not available silently', tokenScopeSummary(tokenScopes));
     } else {
       logOAuthSession(onEvent, silentSession, 'OAuth token acquired silently');
     }
     return { token: silentSession?.accessToken, prompted };
+  } catch (error) {
+    onEvent?.('OAuth token request failed', formatAuthError(error));
+    throw error;
   }
-
-  if (accountSelection === 'prompt') {
-    prompted = true;
-    const session = await vscode.authentication.getSession(providerId, tokenScopes, {
-      forceNewSession: { detail },
-      clearSessionPreference: true,
-    });
-    logOAuthSession(onEvent, session, 'OAuth token acquired after account selection');
-    return { token: session.accessToken, prompted };
-  }
-
-  const silentSession = await vscode.authentication.getSession(providerId, tokenScopes, { silent: true });
-  if (!silentSession) {
-    onEvent?.('OAuth token not available silently', tokenScopeSummary(tokenScopes));
-  } else {
-    logOAuthSession(onEvent, silentSession, 'OAuth token acquired silently');
-  }
-  return { token: silentSession?.accessToken, prompted };
 }
 
 function logOAuthSession(
@@ -254,6 +267,38 @@ function decodeJwtPayload(token: string): Record<string, unknown> | undefined {
 
 function tokenScopeSummary(tokenScopes: string[]): string {
   return `Scopes: ${tokenScopes.join(' ')}`;
+}
+
+function formatAuthError(error: unknown): string {
+  const lines: string[] = [];
+  if (error instanceof Error) {
+    lines.push(`${error.name}: ${error.message}`);
+  } else {
+    lines.push(String(error));
+  }
+
+  if (typeof error === 'object' && error !== null) {
+    for (const key of ['code', 'platformBrokerError', 'error', 'errorCode'] as const) {
+      const value = (error as Record<string, unknown>)[key];
+      if (value !== undefined) {
+        lines.push(`${key}: ${formatLogValue(value)}`);
+      }
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function formatLogValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
 function isClaimsChallenge(
