@@ -199,7 +199,7 @@ async function acquireTokenFromMetadata(
   if (accountSelection === 'prompt') {
     prompted = true;
     const accountSession = await vscode.authentication.getSession(providerId, [], {
-      createIfNone: { detail },
+      forceNewSession: { detail },
       clearSessionPreference: true,
     });
     const session = await vscode.authentication.getSession(providerId, tokenScopes, {
