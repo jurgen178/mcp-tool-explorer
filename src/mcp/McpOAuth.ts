@@ -4,7 +4,7 @@
  *
  * On a 401 with `www-authenticate: Bearer resource_metadata="..."`, it extracts
  * the metadata path, fetches it from the request's own origin, discovers the
- * required scopes, and acquires a token via `vscode.authentication`.
+ * required scopes or resource, and acquires a token via `vscode.authentication`.
  */
 import * as vscode from 'vscode';
 import type { AuthAccountSelection } from '../types';
@@ -48,7 +48,7 @@ export function createOAuthHandler(
 
     if (response.status === 401 && !options.state?.promptCancelled) {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
-      const result = await discoverAndAcquireToken(response, url, accountSelection, options.serverName);
+      const result = await discoverAndAcquireToken(response, url, accountSelection, options.serverName, baseFetch);
       const token = result.token;
       if (token) {
         cachedToken = token;
@@ -84,13 +84,14 @@ function resolveProviderId(authServer: string): string | undefined {
 
 /**
  * Parse the `www-authenticate` header, fetch OAuth resource metadata from the
- * same origin as the original request, and acquire a token via VS Code.
+ * advertised URL, and acquire a token via VS Code.
  */
 async function discoverAndAcquireToken(
   response: Response,
   requestUrl: string,
   accountSelection: AuthAccountSelection,
   serverName: string | undefined,
+  metadataFetch: typeof globalThis.fetch,
 ): Promise<TokenAcquisitionResult> {
   let prompted = false;
   const wwwAuth = response.headers.get('www-authenticate') ?? '';
@@ -107,7 +108,7 @@ async function discoverAndAcquireToken(
   }
 
   try {
-    const rmResp = await globalThis.fetch(resourceMetadataUrl, { signal: AbortSignal.timeout(5000) });
+    const rmResp = await metadataFetch(resourceMetadataUrl, { signal: AbortSignal.timeout(5000) });
     if (!rmResp.ok) return { prompted };
 
     const meta = await rmResp.json() as {
@@ -117,11 +118,19 @@ async function discoverAndAcquireToken(
     };
 
     const scopes = meta.scopes_supported ?? [];
+    const resourceDefaultScope = typeof meta.resource === 'string'
+      ? toDefaultScope(meta.resource)
+      : undefined;
     // Keep only app-specific scopes (e.g. "GUID/.default"), skip generic OIDC scopes
     const appScopes = scopes.filter(
       (s: string) => s.includes('/') && !['openid', 'profile', 'offline_access', 'email'].includes(s),
     );
-    const tokenScopes = appScopes.length > 0 ? appScopes : scopes;
+    let tokenScopes = scopes;
+    if (appScopes.length > 0) {
+      tokenScopes = appScopes;
+    } else if (scopes.length === 0 && resourceDefaultScope) {
+      tokenScopes = [resourceDefaultScope];
+    }
     if (tokenScopes.length === 0) return { prompted };
 
     // Derive the VS Code auth provider from the authorization_servers metadata.
@@ -152,4 +161,17 @@ async function discoverAndAcquireToken(
   } catch {
     return { prompted };
   }
+}
+
+function toDefaultScope(resource: string): string | undefined {
+  const trimmedResource = resource.trim();
+  if (!trimmedResource) {
+    return undefined;
+  }
+
+  if (trimmedResource.endsWith('/.default')) {
+    return trimmedResource;
+  }
+
+  return `${trimmedResource.replace(/\/+$/, '')}/.default`;
 }
