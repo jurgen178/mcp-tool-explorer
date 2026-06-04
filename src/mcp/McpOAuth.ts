@@ -36,7 +36,11 @@ export function createOAuthHandler(
   baseFetch: typeof globalThis.fetch = globalThis.fetch,
   options: OAuthOptions = {},
 ): typeof globalThis.fetch {
-  /** Cached access token — reused across requests until a fresh 401 arrives. */
+  // Keep this token in the shared OAuthState, not only in this fetch wrapper.
+  // A single connection attempt may try Streamable HTTP first and then fall
+  // back to SSE; both transports must reuse the token acquired during the
+  // first 401 challenge. If this becomes local-only again, the fallback path
+  // can open a second account/login prompt after auth already succeeded.
   let cachedToken = options.state?.accessToken;
   const accountSelection = options.accountSelection ?? 'auto';
 
@@ -242,6 +246,13 @@ function getResourceMetadataFallback(resourceMetadataUrl: string): OAuthResource
 }
 
 function getResourceFromMetadataUrl(metadataUrl: URL): string | undefined {
+  // Be very careful with this fallback. The normal OAuth path should use the
+  // `resource` value from OAuth Protected Resource Metadata. Some gateways do
+  // advertise a resource_metadata URL but do not allow this extension to fetch
+  // it, so we have to derive the resource from that URL. For non-local hosts we
+  // intentionally normalize an advertised http URL to https before building the
+  // Microsoft/.default scope; changing this can break account selection and
+  // token acquisition for hosted MCP servers whose metadata endpoint is blocked.
   const marker = '/.well-known/oauth-protected-resource';
   const markerIndex = metadataUrl.pathname.indexOf(marker);
   if (markerIndex < 0) {
