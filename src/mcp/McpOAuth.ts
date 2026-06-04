@@ -17,6 +17,7 @@ interface OAuthOptions {
 
 export interface OAuthState {
   promptCancelled?: boolean;
+  authFailed?: boolean;
 }
 
 interface TokenAcquisitionResult {
@@ -54,7 +55,16 @@ export function createOAuthHandler(
 
     if (response.status === 401 && !options.state?.promptCancelled) {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : (input as Request).url;
-      const result = await discoverAndAcquireToken(response, url, accountSelection, options.serverName, baseFetch);
+      let result: TokenAcquisitionResult;
+      try {
+        result = await discoverAndAcquireToken(response, url, accountSelection, options.serverName, baseFetch);
+      } catch (error) {
+        if (options.state) {
+          options.state.authFailed = true;
+          options.state.promptCancelled = true;
+        }
+        throw error;
+      }
       const token = result.token;
       if (token) {
         cachedToken = token;
@@ -114,21 +124,21 @@ async function discoverAndAcquireToken(
   }
 
   const metadataFallback = getResourceMetadataFallback(resourceMetadataUrl);
+  let meta: OAuthResourceMetadata | undefined;
 
   try {
     const rmResp = await metadataFetch(resourceMetadataUrl, { signal: AbortSignal.timeout(5000) });
-    if (!rmResp.ok && !metadataFallback) return { prompted };
-
-    const meta = rmResp.ok
-      ? await rmResp.json() as OAuthResourceMetadata
-      : metadataFallback!;
-    return acquireTokenFromMetadata(meta, accountSelection, serverName);
-  } catch {
-    if (metadataFallback) {
-      return acquireTokenFromMetadata(metadataFallback, accountSelection, serverName);
+    if (rmResp.ok) {
+      meta = await rmResp.json() as OAuthResourceMetadata;
     }
-    return { prompted };
+  } catch {
+    // Fall back below when possible.
   }
+
+  meta ??= metadataFallback;
+  if (!meta) return { prompted };
+
+  return acquireTokenFromMetadata(meta, accountSelection, serverName);
 }
 
 async function acquireTokenFromMetadata(
